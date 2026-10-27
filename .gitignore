@@ -9,8 +9,7 @@ dist/
 .ruff_cache/
 .mypy_cache/
 
-# 运行时数据（绝不提交）
-data/
+# 杩愯鏃舵暟鎹紙缁濅笉鎻愪氦锛?data/
 projects/
 logs/
 *.ckpt
@@ -19,13 +18,18 @@ logs/
 *.onnx
 *.safetensors
 
-# 本地配置与密钥
-.env
+# 鏈湴閰嶇疆涓庡瘑閽?.env
 *.local.json
 secrets.enc
 
-# 编辑器 / 系统
+# 缂栬緫鍣?/ 绯荤粺
 .vscode/
 .idea/
 Thumbs.db
 desktop.ini
+
+# 日志与构建产物
+*.log
+pip*.log
+wheels/
+tmpw/
