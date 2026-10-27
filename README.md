@@ -72,14 +72,16 @@ docs/        设计文档、便携版契约、用户说明、调研笔记
 
 ## 开发
 
-```bash
-python -m venv .venv && . .venv/Scripts/activate   # Windows
-pip install -e ".[dev]"
-ruff check .
-pytest
+从零搭建（Python/venv、镜像与代理、SSH 推送、故障对照表）见 **[docs/setup-windows.md](docs/setup-windows.md)**。
+
+```bat
+py -3.12 -m venv .venv
+.venv\Scripts\activate.bat
+python -m pip install -e ".[dev]"
+python -m pytest
 ```
 
-要求 Python ≥ 3.11；GPU 可选（CUDA 12 推荐，CPU 亦可运行但慢 3–5 倍）。
+要求 Python 3.12（3.11 亦可）；GPU 可选（CUDA 12 推荐，CPU 慢 3–5 倍）。
 
 工程约定见 [`AGENTS.md`](AGENTS.md)——尤其是「core 不得 import Qt」与「单文件 ≤ 800 行」。
 

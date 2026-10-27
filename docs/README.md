@@ -3,6 +3,7 @@
 | 文件 | 内容 |
 |---|---|
 | [design.md](design.md) | 选型与架构（v0.3）：流水线、竖排规格、8 GB 档位、里程碑 |
+| [setup-windows.md](setup-windows.md) | Windows 从零搭环境：venv、镜像/代理、SSH、故障对照表 |
 | [portable-data-contract.md](portable-data-contract.md) | `data/` 目录、`config.json`、`models/manifest.json`、`secrets.enc` 契约 |
 | [release-checklist.md](release-checklist.md) | 发布前逐条检查（合规 / 便携 / 质量 / 材料） |
 | [user-guide.txt](user-guide.txt) | 最终用户说明（随便携包发布） |
