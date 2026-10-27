@@ -84,3 +84,11 @@ engine ──▶ core / adapters
 - 默认不记录漫画原文与译文；`debug` 级别记录时必须启动时明示。
 - 不上传任何图片或文本到自制服务器；只调用用户配置的翻译端点。
 - 崩溃报告默认只含栈与版本号，不含用户内容。
+
+## 12. 编码
+
+- 所有文本文件（`.md` / `.txt` / `.py` / `.toml` / `.json`）一律 **UTF-8 无 BOM**，换行走 LF（`.gitattributes` 已配）。
+- **禁止**用 `Get-Content ... | Set-Content` 或 `[IO.File]::WriteAllText` 改写含中文的文件：PowerShell 会按系统代码页（GBK）解码 UTF-8，回写后中文变成私用区乱码，`git diff` 看不出来。
+  需要改中文文档时用编辑器或 `python -c` 显式 `encoding="utf-8"` 读写。
+- `tests/test_encoding.py` 会扫描全部文本文件，出现非法 UTF-8 或私用区字符即失败；提交前跑一次 `python -m pytest`。
+
