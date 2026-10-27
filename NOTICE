@@ -1,0 +1,64 @@
+# NOTICE
+
+mangatl — 一键化本地漫画翻译工具
+Copyright (C) 2026 mangatl contributors
+
+本程序以 GNU General Public License v3.0 发布（SPDX: `GPL-3.0-only`）。
+完整许可证文本见 [GNU GPL v3](https://www.gnu.org/licenses/gpl-3.0.txt)。
+
+---
+
+## 1. 移植与参考的代码
+
+本项目在实现检测后处理与排版算法时，计划移植/参考以下 GPL-3.0 项目的代码。
+**每个移植文件都会保留原始版权头**，并在本节登记。
+
+| 来源项目 | 许可证 | 用途 | 状态 |
+|---|---|---|---|
+| [BallonsTranslator](https://github.com/dmMaze/BallonsTranslator) | GPL-3.0 | 行合并、过度合并切分、文字掩膜、几何工具 | 计划移植 |
+| [manga-image-translator](https://github.com/zyddnys/manga-image-translator) | GPL-3.0 | 检测/OCR/修复推理封装思路、文本后处理 | 计划参考 |
+
+> 移植完成后，本节需逐文件补全：原文件路径、原作者、修改说明。
+
+## 2. 运行时依赖
+
+| 组件 | 许可证 | 说明 |
+|---|---|---|
+| Python | PSF-2.0 | 解释器 |
+| Qt 6 / PySide6 | **LGPL-3.0** | 动态链接；`_internal/` 中的 Qt DLL 可由用户替换 |
+| PyTorch | BSD-3-Clause | 推理 |
+| ONNX Runtime | MIT | PP-OCR 推理 |
+| OpenCV | Apache-2.0 | 图像处理 |
+| NumPy | BSD-3-Clause | |
+| Shapely | BSD-3-Clause | 几何运算 |
+| Pillow | HPND | 光栅化与字体渲染 |
+| pkuseg | MIT | 中文分词 |
+| huggingface_hub | Apache-2.0 | 模型下载 |
+
+## 3. 模型权重
+
+模型许可证以 `data/models/LICENSES.txt` 与 `manifest.json` 为准，本节只列出默认集：
+
+| 模型 | 来源 | 许可证 |
+|---|---|---|
+| comic-text-detector | dmMaze/comic-text-detector | GPL-3.0 |
+| manga-ocr | kha-white/manga-ocr | MIT（待复核） |
+| PP-OCRv5 | PaddlePaddle/PaddleOCR | Apache-2.0 |
+| LaMa | advimman/lama + 漫画微调权重 | Apache-2.0 |
+
+## 4. 字体
+
+| 字体 | 许可证 | 用途 |
+|---|---|---|
+| Source Han Sans SC（思源黑体） | SIL OFL 1.1 | 对话 |
+| Source Han Serif SC（思源宋体） | SIL OFL 1.1 | 旁白 |
+| LXGW WenKai（霞鹜文楷） | SIL OFL 1.1 | 手写 / 独白 |
+
+OFL 要求：保留版权声明与保留字体名；不得单独售卖字体。
+
+## 5. 免责声明
+
+- 机翻结果仅供个人阅读参考。公开分享时请显著标注「机翻」。
+- 使用者须自行确保其行为符合当地法律与作品版权要求。
+- 本项目不提供、不分发任何受版权保护的漫画内容。
+- API Key 由用户自备，项目不收集、不上传。

@@ -1,0 +1,1 @@
+"""PySide6 desktop UI. Displays rendered pixels only; never runs inference."""

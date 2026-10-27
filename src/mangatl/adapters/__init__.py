@@ -1,0 +1,1 @@
+"""Adapters: Detector / OCR / Inpainter / Translator, each behind a Protocol + registry."""

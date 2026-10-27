@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: pytest
+
+  architecture-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: core must not import Qt
+        run: |
+          if grep -RnE "^\s*(import|from)\s+(PySide6|PyQt5|PyQt6|qtpy)" \
+              src/mangatl/core src/mangatl/domain src/mangatl/adapters \
+              src/mangatl/render src/mangatl/io src/mangatl/engine; then
+            echo "::error::core/domain/adapters/render/io/engine 不得依赖 Qt"
+            exit 1
+          fi
+      - name: single file must be <= 800 lines
+        run: |
+          bad=$(find src -name '*.py' -exec wc -l {} + | awk '$1 > 800 && $2 != "total" {print}')
+          if [ -n "$bad" ]; then echo "::error::文件超过 800 行"; echo "$bad"; exit 1; fi
+
+  windows-compile:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m compileall -q src

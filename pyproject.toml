@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mangatl"
+version = "0.3.0.dev0"
+description = "One-click local manga translation: detect, OCR, LLM translate, erase, typeset (incl. vertical)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "GPL-3.0-only" }
+authors = [{ name = "mangatl contributors" }]
+keywords = ["manga", "comic", "translation", "ocr", "inpainting", "typesetting", "japanese", "chinese"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Environment :: X11 Applications :: Qt",
+  "Intended Audience :: End Users/Desktop",
+  "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+  "Natural Language :: Chinese (Simplified)",
+  "Natural Language :: Japanese",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Multimedia :: Graphics",
+]
+# 运行时依赖待 M1 冻结（torch 按 CUDA/CPU 分档，不放这里）
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["ruff>=0.6", "pytest>=8"]
+
+[project.urls]
+Homepage = "https://github.com/OWNER/mangatl"
+Documentation = "https://github.com/OWNER/mangatl/tree/main/docs"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mangatl"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

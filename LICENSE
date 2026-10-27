@@ -1,0 +1,30 @@
+mangatl — 一键化本地漫画翻译工具
+Copyright (C) 2026 mangatl contributors
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, version 3 of the License.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+---
+
+维护者注记（发布前必须处理）
+================================================================
+本文件目前只包含 GPL-3.0 的标准声明，尚未内置许可证全文。
+
+首次公开发布前执行其一：
+  A. 用全文替换本文件：
+       curl -L https://www.gnu.org/licenses/gpl-3.0.txt -o LICENSE
+     再在文件开头补回上面的版权与免责声明。
+  B. 保留本文件为声明，另存全文为 COPYING。
+
+同时确认 NOTICE 已登记全部移植代码来源。
+检查项见 docs/release-checklist.md。
+================================================================

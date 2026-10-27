@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# 运行时数据（绝不提交）
+data/
+projects/
+logs/
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.safetensors
+
+# 本地配置与密钥
+.env
+*.local.json
+secrets.enc
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
