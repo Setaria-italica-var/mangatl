@@ -34,7 +34,27 @@ python -V
 
 ## 2. 选一条装依赖的路
 
-### A. 镜像（推荐，最快）
+### 0. uv（**本机实测唯一一次就通**，推荐）
+
+uv 用自己的 HTTP 栈，不经过 pip 的 TLS/证书路径，能绕开 pip 26 在 Windows 上的静默挂起。
+
+```bat
+py -3.12 -m pip install uv --index-url https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
+set UV=%LOCALAPPDATA%\Programs\Python\Python312\Scripts\uv.exe
+"%UV%" --version
+```
+
+```bat
+cd /d C:\Users\admin\Documents\deepseek-harness\default-workspace\mangatl
+set UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
+set UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+"%UV%" venv --clear --python 3.12 .venv
+"%UV%" pip install --python .venv\Scripts\python.exe -e ".[dev]"
+```
+
+注意两点：`uv venv` **默认不装 pip**（venv 里没有 `pip` 命令是正常的），依赖统一用 `%UV% pip install` 管理；`--python` 一定要显式指向 venv，不依赖当前激活状态。
+
+### A. 镜像（pip 路线）
 
 ```bat
 set PIP_CONFIG_FILE=NUL

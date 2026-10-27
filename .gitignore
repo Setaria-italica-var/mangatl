@@ -9,7 +9,7 @@ dist/
 .ruff_cache/
 .mypy_cache/
 
-# 杩愯鏃舵暟鎹紙缁濅笉鎻愪氦锛?data/
+# 鏉╂劘顢戦弮鑸垫殶閹诡噯绱欑紒婵呯瑝閹绘劒姘﹂敍?data/
 projects/
 logs/
 *.ckpt
@@ -18,18 +18,21 @@ logs/
 *.onnx
 *.safetensors
 
-# 鏈湴閰嶇疆涓庡瘑閽?.env
+# 閺堫剙婀撮柊宥囩枂娑撳骸鐦戦柦?.env
 *.local.json
 secrets.enc
 
-# 缂栬緫鍣?/ 绯荤粺
-.vscode/
+# 缂傛牞绶崳?/ 缁崵绮?.vscode/
 .idea/
 Thumbs.db
 desktop.ini
 
-# 日志与构建产物
-*.log
+# 鏃ュ織涓庢瀯寤轰骇鐗?*.log
 pip*.log
 wheels/
 tmpw/
+
+# pip/测试临时残留
+pip-*/
+pytest-cache-files-*/
+.tmp/
