@@ -28,6 +28,7 @@ EVENT_STAGE_START = "stage-start"
 EVENT_STAGE_DONE = "stage-done"
 EVENT_PAGE_DONE = "page-done"
 EVENT_PAGE_FAILED = "page-failed"
+EVENT_PAGE_SKIPPED = "page-skipped"
 
 EventFn = Callable[["Event"], None]
 
@@ -74,10 +75,14 @@ class PipelineService:
         summary = RunSummary(total=len(self.project))
         for page in self.project:
             try:
-                self._run_page(page, config)
+                ran_any = self._run_page(page, config)
             except Exception as exc:  # one bad page must not abort the batch
                 summary.failed += 1
                 self._emit(EVENT_PAGE_FAILED, page.name, str(exc))
+                continue
+            if not ran_any:
+                summary.skipped += 1
+                self._emit(EVENT_PAGE_SKIPPED, page.name)
                 continue
             summary.ok += 1
             summary.blocks += len(page.blocks)
@@ -85,8 +90,10 @@ class PipelineService:
             self._emit(EVENT_PAGE_DONE, page.name, f"{len(page.blocks)} blocks")
         return summary
 
-    def _run_page(self, page: Page, config: RunConfig) -> None:
+    def _run_page(self, page: Page, config: RunConfig) -> bool:
+        """Run the pending stages for one page; return whether anything ran."""
         image_path = self.project.directory / page.name
+        ran_any = False
         for stage in config.stages:
             if page.is_done(stage) and not config.force:
                 continue
@@ -101,7 +108,9 @@ class PipelineService:
                 destination = self.project.directory / config.output_dirname / page.name
                 self.inpainter.erase(image_path, destination, page.blocks)
             page.mark(stage)
+            ran_any = True
             self._emit(EVENT_STAGE_DONE, page.name, stage)
+        return ran_any
 
     def _emit(self, kind: str, page: str, detail: str = "") -> None:
         if self.on_event is not None:

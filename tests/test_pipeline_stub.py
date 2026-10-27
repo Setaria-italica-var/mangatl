@@ -9,7 +9,12 @@ import pytest
 
 from mangatl.adapters.stubs import CopyInpainter, EchoOcr, GridDetector
 from mangatl.core.config import RunConfig
-from mangatl.core.pipeline import EVENT_PAGE_DONE, EVENT_PAGE_FAILED, PipelineService
+from mangatl.core.pipeline import (
+    EVENT_PAGE_DONE,
+    EVENT_PAGE_FAILED,
+    EVENT_PAGE_SKIPPED,
+    PipelineService,
+)
 from mangatl.domain.project import Project
 
 PNG_STUB = b"\x89PNG\r\n\x1a\n"
@@ -52,8 +57,10 @@ def test_pipeline_skips_finished_stages(project: Project) -> None:
     events: list = []
     summary = make_service(project, events).run(RunConfig())
 
-    assert summary.ok == 2
-    assert events == []  # nothing re-run, so no page-done events
+    assert summary.ok == 0
+    assert summary.skipped == 2
+    assert summary.failed == 0
+    assert [event.kind for event in events] == [EVENT_PAGE_SKIPPED, EVENT_PAGE_SKIPPED]
 
 
 def test_force_reruns_stages(project: Project) -> None:
