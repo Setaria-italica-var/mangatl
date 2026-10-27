@@ -68,14 +68,18 @@ python -m pip install -e ".[dev]" ^
 
 注意：代理必须写 `http://`，不是 `https://`；Clash 要切「全局 / Global」。
 
-### 卡在构建时（两条路都会遇到）
+### `-e .` 静默卡住（本机实测必现）
 
-拆成两步，绕开 pip 的 build isolation：
+**现象**：`pip install -e ".[dev]"` 无任何输出、也不报错；`Ctrl+C` 后日志里只有 `ERROR: Operation cancelled by user`。
+**原因**：pip 的 build isolation 会临时建环境再装 `hatchling`，子进程输出被捕获，看不到进度。
+**做法**：装一次 hatchling，之后永久加 `--no-build-isolation`：
 
 ```bat
-python -m pip install hatchling --index-url <你选的那个源> [--proxy ...]
-python -m pip install -e . --no-build-isolation --index-url <同一个源> [--proxy ...]
+python -m pip install hatchling --index-url https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn --timeout 10 --retries 0
+python -m pip install -e ".[dev]" --no-build-isolation --index-url https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn --timeout 10 --retries 0 -v
 ```
+
+若报 `BackendUnavailable`：`python -m pip show hatchling` 的 `Location` 必须在 `.venv\Lib\site-packages` 下，否则用 `python -m pip install --force-reinstall hatchling`。
 
 ## 3. 验证
 
