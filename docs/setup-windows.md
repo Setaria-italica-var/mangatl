@@ -144,6 +144,32 @@ cd /d C:\Users\admin\Documents\deepseek-harness\default-workspace\mangatl
 | `PermissionError: pip.ini` | 配置文件被安全软件锁写 | 不要改它，用 `PIP_CONFIG_FILE=NUL` |
 | 连接建立但下载速度 0 | 节点到 Fastly CDN 不通 | 换节点 / 换网络 / 离线 wheels |
 | 卡在 `Resolving` 或构建 | build isolation 在下载 | `--no-build-isolation`（先装 hatchling） |
+| **`pip install` 毫无输出、永远等**（`-V`/`list` 正常、`urllib` 取页面 200） | pip 26.x 在 Windows 上的 TLS/truststore 回归 | 回退 pip：`python -m ensurepip --upgrade --default-pip`，之后固定 `pip<26` |
+
+## 附：pip 26 在 Windows 上会静默挂起
+
+实测现象：venv 里是 `pip 26.2.2` 时，`pip install` 无任何输出、CPU 空闲、永远不报错；同一解释器用 `urllib` 取 PyPI 却返回 200，系统 Python 的 pip 25 也正常。判断为 pip 26 改走系统证书库（vendored `truststore`）后的回归。
+
+**修复（离线，不联网）**：
+
+```bat
+python -m ensurepip --upgrade --default-pip
+python -m pip -V
+```
+
+应回落到 Python 3.12.10 自带的 pip（24.x）。之后**不要**再 `pip install -U pip`；确实要升级就锁 `pip<26`：
+
+```bat
+python -m pip install "pip<26"
+```
+
+若 `ensurepip` 不可用，直接重建 venv（同样拿到自带 pip）：
+
+```bat
+py -3.12 -m venv --clear .venv
+.venv\Scripts\activate.bat
+```
+
 
 ## 离线兜底（网络彻底不通时）
 
