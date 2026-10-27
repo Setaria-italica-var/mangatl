@@ -68,18 +68,22 @@ python -m pip install -e ".[dev]" ^
 
 注意：代理必须写 `http://`，不是 `https://`；Clash 要切「全局 / Global」。
 
-### `-e .` 静默卡住（本机实测必现）
+### `-e .` 静默卡住
 
 **现象**：`pip install -e ".[dev]"` 无任何输出、也不报错；`Ctrl+C` 后日志里只有 `ERROR: Operation cancelled by user`。
-**原因**：pip 的 build isolation 会临时建环境再装 `hatchling`，子进程输出被捕获，看不到进度。
-**做法**：装一次 hatchling，之后永久加 `--no-build-isolation`：
+**根因（实测）**：venv 里是 **pip 26.2.2**，它在 Windows 上走系统证书库（vendored truststore）会挂死；同一解释器用 `urllib` 取 PyPI 却返回 200。
+**做法**：把 venv 的 pip 换回 25 或更早（见文末「pip 26 在 Windows 上会静默挂起」），然后**用默认的 build isolation 直接装**，不需要 `--no-build-isolation`：
 
 ```bat
-python -m pip install hatchling --index-url https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn --timeout 10 --retries 0
-python -m pip install -e ".[dev]" --no-build-isolation --index-url https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn --timeout 10 --retries 0 -v
+python -m pip install -e ".[dev]" --index-url https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
 ```
 
-若报 `BackendUnavailable`：`python -m pip show hatchling` 的 `Location` 必须在 `.venv\Lib\site-packages` 下，否则用 `python -m pip install --force-reinstall hatchling`。
+只有当你想跳过隔离环境时才加 `--no-build-isolation`，并且要先补齐 hatchling 的全部依赖，否则会报 `ModuleNotFoundError: No module named 'editables'`：
+
+```bat
+python -m pip install hatchling editables packaging pathspec pluggy trove-classifiers
+python -m pip install -e ".[dev]" --no-build-isolation
+```
 
 ## 3. 验证
 
