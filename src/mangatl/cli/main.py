@@ -79,7 +79,29 @@ def _build_parser() -> argparse.ArgumentParser:
     demo.add_argument("directory", type=Path, help="folder to create the pages in")
     demo.add_argument("--pages", type=int, default=6)
     demo.add_argument("--seed", type=int, default=7)
+
+    probe = sub.add_parser("probe", help="print an ONNX model's inputs and outputs")
+    probe.add_argument("model", type=Path, help="path to a .onnx file")
     return parser
+
+
+def _run_probe(model: Path) -> int:
+    """Report the tensor contract of an ONNX model before writing a decoder."""
+    try:
+        import onnxruntime as ort
+    except ImportError:
+        print("error: probing needs onnxruntime (pip install onnxruntime)", file=sys.stderr)
+        return 2
+    if not model.is_file():
+        print(f"error: {model} does not exist", file=sys.stderr)
+        return 2
+    session = ort.InferenceSession(str(model), providers=["CPUExecutionProvider"])
+    print(f"providers: {session.get_providers()}")
+    for item in session.get_inputs():
+        print(f"input  {item.name}: shape={item.shape} type={item.type}")
+    for item in session.get_outputs():
+        print(f"output {item.name}: shape={item.shape} type={item.type}")
+    return 0
 
 
 def _run_demo(directory: Path, pages: int, seed: int) -> int:
@@ -98,6 +120,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     if args.command == "demo":
         return _run_demo(args.directory, args.pages, args.seed)
+    if args.command == "probe":
+        return _run_probe(args.model)
     if args.command != "run":  # pragma: no cover - argparse enforces the choices
         return 2
 
