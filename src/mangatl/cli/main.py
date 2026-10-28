@@ -40,11 +40,15 @@ def default_registries() -> tuple[DetectorRegistry, DetectorRegistry, DetectorRe
     inpainters: DetectorRegistry = Registry("inpainter")
     inpainters.add("copy", CopyInpainter)
     try:
+        from mangatl.adapters.inpaint.auto import AutoInpainter
+        from mangatl.adapters.inpaint.diffusion import DiffusionInpainter
         from mangatl.adapters.inpaint.solid import SolidFillInpainter
     except ImportError:  # numpy / Pillow missing
         pass
     else:
         inpainters.add("solid", SolidFillInpainter)
+        inpainters.add("diffusion", DiffusionInpainter)
+        inpainters.add("auto", AutoInpainter)
     return detectors, ocrs, inpainters
 
 
