@@ -38,7 +38,9 @@ src/mangatl/
 tests/test_pipeline_stub.py   7 个用例：全阶段、跳过、force、坏页隔离、缺目录、非法阶段、事件
 tests/test_inpaint_solid.py   7 个用例：纯色判定、细描边容忍、梯度拒绝、中位色、填充、跳过、alpha 保留
 tests/test_inpaint_diffusion.py 7 个用例：掩膜、纯色、梯度、大洞收敛、alpha、auto 两分支
-tests/test_encoding.py        32 个文件：UTF-8 与乱码守卫
+tests/test_encoding.py        全部文本文件：UTF-8 与乱码守卫
+tests/test_demo.py            3 个用例：页数/尺寸、确定性、变体差异
+src/mangatl/tools/demo.py     合成页生成器（`python -m mangatl demo`）
 docs/m0-plan.md        本文件
 ```
 
@@ -47,6 +49,9 @@ docs/m0-plan.md        本文件
 ```bat
 cd /d C:\Users\admin\Documents\deepseek-harness\default-workspace\mangatl
 .venv\Scripts\activate.bat
+
+:: 没有样本时先生成合成页（气泡 + 横排/竖排字块 + 渐变）
+python -m mangatl demo .\samples\vol1 --pages 6
 
 :: 端到端（stub，几秒完成）
 python -m mangatl run .\samples\vol1

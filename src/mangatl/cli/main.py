@@ -74,12 +74,30 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--ocr", default="echo")
     run.add_argument("--inpainter", default="copy")
     run.add_argument("--force", action="store_true", help="re-run stages already marked done")
+
+    demo = sub.add_parser("demo", help="write synthetic pages for a smoke test")
+    demo.add_argument("directory", type=Path, help="folder to create the pages in")
+    demo.add_argument("--pages", type=int, default=6)
+    demo.add_argument("--seed", type=int, default=7)
     return parser
+
+
+def _run_demo(directory: Path, pages: int, seed: int) -> int:
+    try:
+        from mangatl.tools.demo import generate
+    except ImportError:
+        print("error: generating demo pages needs Pillow (pip install pillow)", file=sys.stderr)
+        return 2
+    paths = generate(directory, pages=pages, seed=seed)
+    print(f"wrote {len(paths)} pages to {directory}")
+    return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and return a process exit code."""
     args = _build_parser().parse_args(argv)
+    if args.command == "demo":
+        return _run_demo(args.directory, args.pages, args.seed)
     if args.command != "run":  # pragma: no cover - argparse enforces the choices
         return 2
 
@@ -101,7 +119,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
-    project = Project.open(args.directory)
+    try:
+        project = Project.open(args.directory)
+    except FileNotFoundError:
+        print(
+            f"error: {args.directory} does not exist\n"
+            f"hint: generate synthetic pages first -> python -m mangatl demo {args.directory}",
+            file=sys.stderr,
+        )
+        return 2
     project.scan()
     service = PipelineService(project, detector, ocr, inpainter, on_event=_print_event)
     summary = service.run(config)
