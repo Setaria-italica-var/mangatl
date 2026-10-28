@@ -55,6 +55,8 @@ def default_registries() -> tuple[DetectorRegistry, DetectorRegistry, DetectorRe
 def _print_event(event: Event) -> None:
     if event.kind == EVENT_PAGE_DONE:
         print(f"[{event.page}] done: {event.detail}")
+    elif event.kind == EVENT_PAGE_FAILED:
+        print(f"[{event.page}] failed: {event.detail}", file=sys.stderr)
 
 
 def _build_parser() -> argparse.ArgumentParser:
