@@ -27,6 +27,8 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["ruff>=0.6", "pytest>=8"]
+# 图像处理（纯色快路径、后续的 LaMa）
+vision = ["numpy>=1.26", "pillow>=10"]
 
 [project.urls]
 Homepage = "https://github.com/OWNER/mangatl"

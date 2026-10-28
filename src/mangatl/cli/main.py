@@ -26,7 +26,11 @@ DetectorRegistry = Registry[type]
 
 
 def default_registries() -> tuple[DetectorRegistry, DetectorRegistry, DetectorRegistry]:
-    """Return registries preloaded with the M0 stub adapters."""
+    """Return registries preloaded with every available adapter.
+
+    Adapters that need optional dependencies are registered only when those
+    dependencies import cleanly, so a stub-only install still works.
+    """
     detectors: DetectorRegistry = Registry("detector")
     detectors.add("grid", GridDetector)
 
@@ -35,6 +39,12 @@ def default_registries() -> tuple[DetectorRegistry, DetectorRegistry, DetectorRe
 
     inpainters: DetectorRegistry = Registry("inpainter")
     inpainters.add("copy", CopyInpainter)
+    try:
+        from mangatl.adapters.inpaint.solid import SolidFillInpainter
+    except ImportError:  # numpy / Pillow missing
+        pass
+    else:
+        inpainters.add("solid", SolidFillInpainter)
     return detectors, ocrs, inpainters
 
 

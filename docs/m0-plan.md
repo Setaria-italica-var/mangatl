@@ -28,11 +28,14 @@ src/mangatl/
   domain/project.py      Page / Project，原子写 project.json
   adapters/base.py       Detector / Ocr / Inpainter 协议 + Registry
   adapters/stubs.py      GridDetector / EchoOcr / CopyInpainter
+  adapters/inpaint/solid.py   纯色气泡快路径（需 extra `vision`：numpy + Pillow）
   core/config.py         RunConfig（不可变）+ resolve()
   core/pipeline.py       PipelineService / Event / RunSummary
-  cli/main.py            argparse 入口
+  cli/main.py            argparse 入口（缺依赖的适配器自动不注册）
   __main__.py            python -m mangatl
 tests/test_pipeline_stub.py   7 个用例：全阶段、跳过、force、坏页隔离、缺目录、非法阶段、事件
+tests/test_inpaint_solid.py   6 个用例：纯色判定、梯度拒绝、中位色、填充、跳过、alpha 保留
+tests/test_encoding.py        32 个文件：UTF-8 与乱码守卫
 docs/m0-plan.md        本文件
 ```
 
@@ -44,6 +47,10 @@ cd /d C:\Users\admin\Documents\deepseek-harness\default-workspace\mangatl
 
 :: 端到端（stub，几秒完成）
 python -m mangatl run .\samples\vol1
+
+:: 打开纯色快路径（需先装 vision 依赖）
+uv pip install --python .venv\Scripts\python.exe numpy pillow
+python -m mangatl run .\samples\vol1 --inpainter solid
 
 :: 测试与静态检查
 python -m pytest -q
@@ -84,9 +91,10 @@ python -m ruff check .
 
 按依赖从少到多推进，每步都可独立验证：
 
-1. **Inpainter → LaMa**：只依赖 torch + numpy + opencv；先做「纯色快路径 + LaMa」两条分支。
-2. **Detector → CTD**：torch + 模型权重，产出 bbox / lines / mask。
-3. **OCR → manga-ocr（日）/ PP-OCR（英）**：onnxruntime 或 torch。
+1. **Inpainter 快路径（已完成）**：`adapters/inpaint/solid.py`，纯色环判定 + 中位色填充，合成图测试覆盖。
+2. **Inpainter → LaMa**：torch + numpy + opencv；与快路径组成「先判纯色、否则走模型」的复合抹字器。
+3. **Detector → CTD**：torch + 模型权重，产出 bbox / lines / mask。
+4. **OCR → manga-ocr（日）/ PP-OCR（英）**：onnxruntime 或 torch。
 
 模型权重（约 1.2 GB）优先走 `hf-mirror.com`；下载清单写进 `data/models/manifest.json`（见
 [portable-data-contract.md](portable-data-contract.md)）。
