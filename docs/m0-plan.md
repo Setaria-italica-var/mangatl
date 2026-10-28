@@ -34,7 +34,7 @@ src/mangatl/
   cli/main.py            argparse 入口（缺依赖的适配器自动不注册）
   __main__.py            python -m mangatl
 tests/test_pipeline_stub.py   7 个用例：全阶段、跳过、force、坏页隔离、缺目录、非法阶段、事件
-tests/test_inpaint_solid.py   6 个用例：纯色判定、梯度拒绝、中位色、填充、跳过、alpha 保留
+tests/test_inpaint_solid.py   7 个用例：纯色判定、细描边容忍、梯度拒绝、中位色、填充、跳过、alpha 保留
 tests/test_encoding.py        32 个文件：UTF-8 与乱码守卫
 docs/m0-plan.md        本文件
 ```
