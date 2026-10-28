@@ -42,7 +42,7 @@ Copyright (C) 2026 mangatl contributors
 | 模型 | 来源 | 许可证 |
 |---|---|---|
 | comic-text-detector | dmMaze/comic-text-detector | GPL-3.0 |
-| manga-ocr | kha-white/manga-ocr | MIT（待复核） |
+| manga-ocr | kha-white/manga-ocr | Apache-2.0 |
 | PP-OCRv5 | PaddlePaddle/PaddleOCR | Apache-2.0 |
 | LaMa | advimman/lama + 漫画微调权重 | Apache-2.0 |
 
