@@ -1,0 +1,98 @@
+"""Tests for the manga-ocr adapter using a fake model module."""
+
+from __future__ import annotations
+
+import sys
+import types
+from pathlib import Path
+
+import pytest
+
+pytest.importorskip("PIL")
+from PIL import Image  # noqa: E402
+
+from mangatl.adapters.ocr.manga_ocr import NEUTRAL_CONFIDENCE, MangaOcrAdapter  # noqa: E402
+from mangatl.domain.block import TextBlock  # noqa: E402
+
+
+class FakeModel:
+    def __init__(self) -> None:
+        self.calls: list[tuple[int, int]] = []
+
+    def __call__(self, image: Image.Image) -> str:
+        self.calls.append(image.size)
+        return f"  text-{len(self.calls)}  "
+
+
+@pytest.fixture()
+def fake_module(monkeypatch: pytest.MonkeyPatch) -> FakeModel:
+    model = FakeModel()
+
+    class MangaOcr:
+        def __init__(self, **_kwargs) -> None:
+            self._model = model
+
+        def __call__(self, image):
+            return self._model(image)
+
+    module = types.ModuleType("manga_ocr")
+    module.MangaOcr = MangaOcr
+    monkeypatch.setitem(sys.modules, "manga_ocr", module)
+    return model
+
+
+def make_page(path: Path) -> Path:
+    Image.new("RGB", (100, 200), (250, 250, 250)).save(path)
+    return path
+
+
+def test_recognize_crops_and_strips(tmp_path: Path, fake_module: FakeModel) -> None:
+    page = make_page(tmp_path / "page.png")
+    adapter = MangaOcrAdapter()
+    blocks = [TextBlock(id=0, bbox=(10, 20, 60, 120))]
+
+    result = adapter.recognize(page, blocks)
+
+    assert result[0].text == "text-1"
+    assert result[0].confidence == NEUTRAL_CONFIDENCE
+    assert fake_module.calls == [(50, 100)]
+
+
+def test_vertical_blocks_are_rotated(tmp_path: Path, fake_module: FakeModel) -> None:
+    page = make_page(tmp_path / "page.png")
+    adapter = MangaOcrAdapter()
+    blocks = [TextBlock(id=0, bbox=(10, 20, 40, 120), vertical=True)]
+
+    adapter.recognize(page, blocks)
+
+    assert fake_module.calls == [(100, 30)]  # width/height swapped by the rotation
+
+
+def test_out_of_bounds_block_is_skipped(tmp_path: Path, fake_module: FakeModel) -> None:
+    page = make_page(tmp_path / "page.png")
+    adapter = MangaOcrAdapter()
+    blocks = [TextBlock(id=0, bbox=(150, 20, 200, 60))]
+
+    result = adapter.recognize(page, blocks)
+
+    assert result[0].text == ""
+    assert result[0].confidence == 0.0
+    assert fake_module.calls == []
+
+
+def test_model_failure_keeps_the_page_alive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Exploding:
+        def __call__(self, image):
+            raise RuntimeError("boom")
+
+    module = types.ModuleType("manga_ocr")
+    module.MangaOcr = lambda **_kwargs: Exploding()
+    monkeypatch.setitem(sys.modules, "manga_ocr", module)
+
+    page = make_page(tmp_path / "page.png")
+    result = MangaOcrAdapter().recognize(page, [TextBlock(id=0, bbox=(10, 20, 60, 120))])
+
+    assert result[0].text == ""
+    assert result[0].confidence == 0.0

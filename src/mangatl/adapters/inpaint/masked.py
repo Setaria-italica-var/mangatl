@@ -70,16 +70,23 @@ def erased_mask(
     demo glyph only lights up near its outline), so the block boxes are unioned
     in. Structure is subtracted per pixel afterwards, which keeps bubble outlines
     safe even when a box touches them.
+
+    ``blocks`` is the *erasable* subset: SFX and texture blocks are filtered out
+    by the pipeline before this point, and their pixels must stay untouched even
+    if the detector's mask covers them.
     """
-    text = probability > config.text_threshold
     gray = np.asarray(Image.fromarray(pixels[..., :3]).convert("L"))
-    ink = ink_mask(gray)
-    labels, stats = label_components(ink)
     block_area = np.zeros(gray.shape, dtype=bool)
     height, width = gray.shape
     for block in blocks:
         x1, y1, x2, y2 = clip_bbox(block.bbox, width, height)
         block_area[y1:y2, x1:x2] = True
+    if not block_area.any():
+        return block_area
+
+    text = (probability > config.text_threshold) & block_area
+    ink = ink_mask(gray)
+    labels, stats = label_components(ink)
     structure = structure_mask(labels, stats, text | block_area, block_area)
     if config.structure_dilate:
         structure = dilate(structure, config.structure_dilate)

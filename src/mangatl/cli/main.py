@@ -42,6 +42,12 @@ def default_registries() -> tuple[DetectorRegistry, DetectorRegistry, DetectorRe
 
     ocrs: DetectorRegistry = Registry("ocr")
     ocrs.add("echo", EchoOcr)
+    try:
+        from mangatl.adapters.ocr.manga_ocr import MangaOcrAdapter
+    except ImportError:  # manga-ocr (or PIL) missing
+        pass
+    else:
+        ocrs.add("manga_ocr", MangaOcrAdapter)
 
     inpainters: DetectorRegistry = Registry("inpainter")
     inpainters.add("copy", CopyInpainter)
@@ -81,6 +87,12 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--detector", default="grid")
     run.add_argument("--ocr", default="echo")
     run.add_argument("--inpainter", default="copy")
+    run.add_argument(
+        "--sfx",
+        choices=("keep", "erase"),
+        default="keep",
+        help="keep onomatopoeia as artwork (default) or erase it too",
+    )
     run.add_argument("--force", action="store_true", help="re-run stages already marked done")
 
     demo = sub.add_parser("demo", help="write synthetic pages for a smoke test")
@@ -140,6 +152,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         ocr=args.ocr,
         inpainter=args.inpainter,
         force=args.force,
+        sfx_policy=args.sfx,
     )
 
     detectors, ocrs, inpainters = default_registries()

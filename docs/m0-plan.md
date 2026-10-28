@@ -34,6 +34,8 @@ src/mangatl/
   adapters/detectors/ctd.py      CTD 检测（ONNX，无 torch/cv2）：掩膜 → 连通域 → 行合并 → 阅读顺序
   adapters/imaging.py            Otsu/墨迹掩膜、行程并查集连通域、结构线判定（实线/虚线/嵌套/黑块）
   adapters/inpaint/masked.py     掩膜约束擦除：只抹字，保留气泡线；纯色块走中位色，其余走扩散
+  adapters/ocr/manga_ocr.py      manga-ocr 适配器（日文，竖排先旋转 90°）
+  domain/roles.py                块级语义判定：dialogue / sfx / texture（用 OCR 结果做证据）
   core/config.py         RunConfig（不可变）+ resolve()
   core/pipeline.py       PipelineService / Event / RunSummary
   cli/main.py            argparse 入口（缺依赖的适配器自动不注册）
@@ -45,6 +47,8 @@ tests/test_encoding.py        全部文本文件：UTF-8 与乱码守卫
 tests/test_demo.py            3 个用例：页数/尺寸、确定性、变体差异
 tests/test_ctd_detector.py    7 个用例：连通域、小噪点过滤、膨胀、行合并、letterbox、模型路径覆盖
 tests/test_inpaint_masked.py  7 个用例：Otsu/墨迹、连通域计数、结构判定、实线/虚线/嵌套/无气泡
+tests/test_roles.py           8 个用例：对话/拟声词/花纹/低置信/阈值可配
+tests/test_ocr_manga.py       4 个用例：裁剪、竖排旋转、越界跳过、单块失败不影响整页
 src/mangatl/tools/demo.py     合成页生成器（`python -m mangatl demo`）
 docs/m0-plan.md        本文件
 ```

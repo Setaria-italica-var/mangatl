@@ -22,7 +22,9 @@ from pathlib import Path
 
 from mangatl.adapters.base import Detector, Inpainter, Ocr
 from mangatl.core.config import RunConfig
+from mangatl.domain.block import TextBlock
 from mangatl.domain.project import Page, Project
+from mangatl.domain.roles import BlockRole, RoleConfig, classify
 
 EVENT_STAGE_START = "stage-start"
 EVENT_STAGE_DONE = "stage-done"
@@ -107,10 +109,12 @@ class PipelineService:
                 if not page.blocks:
                     raise ValueError(f"{page.name}: OCR needs blocks from the detect stage")
                 page.blocks = self.ocr.recognize(image_path, page.blocks)
+                assign_roles(page, config)
             elif stage == "erase":
                 destination = self.project.directory / config.output_dirname / page.name
+                erasable = [block for block in page.blocks if should_erase(block, config)]
                 self.inpainter.erase(
-                    image_path, destination, page.blocks, mask=page.text_mask
+                    image_path, destination, erasable, mask=page.text_mask
                 )
             page.mark(stage)
             ran_any = True
@@ -125,3 +129,40 @@ class PipelineService:
 def output_path(project: Project, config: RunConfig, page_name: str) -> Path:
     """Where the erased page for ``page_name`` is written."""
     return project.directory / config.output_dirname / page_name
+
+
+def mask_coverage(page: Page, block: TextBlock, threshold: float = 0.5) -> float:
+    """Fraction of the block box that the detector marked as text."""
+    if page.text_mask is None:
+        return 1.0
+    probability = page.text_mask
+    height, width = probability.shape[:2]
+    x1, y1, x2, y2 = block.bbox
+    x1, y1 = max(0, min(x1, width)), max(0, min(y1, height))
+    x2, y2 = max(0, min(x2, width)), max(0, min(y2, height))
+    region = probability[y1:y2, x1:x2]
+    if region.size == 0:
+        return 0.0
+    return float((region > threshold).mean())
+
+
+def assign_roles(page: Page, config: RunConfig) -> None:
+    """Classify every block as dialogue / SFX / texture, using the OCR result."""
+    settings = RoleConfig()
+    for block in page.blocks:
+        confidence = block.confidence if block.confidence > 0 else 0.5
+        decision = classify(
+            block.text,
+            confidence=confidence,
+            mask_coverage=mask_coverage(page, block),
+            config=settings,
+        )
+        block.role = decision.role.value
+        block.role_reasons = decision.reasons
+
+
+def should_erase(block: TextBlock, config: RunConfig) -> bool:
+    """Whether the inpainter may touch this block."""
+    if block.role == BlockRole.TEXTURE.value:
+        return False
+    return not (block.role == BlockRole.SFX.value and config.sfx_policy != "erase")

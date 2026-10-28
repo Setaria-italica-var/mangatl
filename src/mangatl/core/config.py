@@ -27,12 +27,15 @@ class RunConfig:
     inpainter: str = "copy"
     output_dirname: str = "inpainted"
     force: bool = False
+    sfx_policy: str = "keep"
     extra: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         unknown = [stage for stage in self.stages if stage not in STAGE_ORDER]
         if unknown:
             raise ValueError(f"unknown stages: {', '.join(unknown)}")
+        if self.sfx_policy not in {"keep", "erase"}:
+            raise ValueError(f"unknown sfx_policy: {self.sfx_policy}")
 
     @property
     def enabled(self) -> frozenset[str]:

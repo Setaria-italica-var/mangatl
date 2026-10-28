@@ -25,6 +25,8 @@ class TextBlock:
     vertical: bool = False
     lines: list[list[tuple[int, int]]] = field(default_factory=list)
     needs_review: bool = False
+    role: str = "dialogue"
+    role_reasons: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-ready mapping."""
@@ -37,6 +39,8 @@ class TextBlock:
             "vertical": self.vertical,
             "lines": self.lines,
             "needs_review": self.needs_review,
+            "role": self.role,
+            "role_reasons": list(self.role_reasons),
         }
 
     @classmethod
@@ -56,4 +60,6 @@ class TextBlock:
             vertical=bool(data.get("vertical", False)),
             lines=[[tuple(pt) for pt in line] for line in data.get("lines", [])],
             needs_review=bool(data.get("needs_review", False)),
+            role=str(data.get("role", "dialogue")),
+            role_reasons=tuple(data.get("role_reasons", ())),
         )
