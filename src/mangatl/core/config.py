@@ -32,6 +32,8 @@ class RunConfig:
     sfx_policy: str = "erase"
     erase_background: bool = False
     erase_scope: str = "strict"
+    bubbles: str = "auto"
+    bubble_model: str = "data/models/bubble_detector.onnx"
     keep_blocks: tuple[str, ...] = ()
     force_blocks: tuple[str, ...] = ()
     extra: dict[str, str] = field(default_factory=dict)
@@ -44,6 +46,8 @@ class RunConfig:
             raise ValueError(f"unknown sfx_policy: {self.sfx_policy}")
         if self.erase_scope not in {"strict", "bright", "all"}:
             raise ValueError(f"unknown erase_scope: {self.erase_scope}")
+        if self.bubbles not in {"auto", "model", "heuristic", "off"}:
+            raise ValueError(f"unknown bubbles mode: {self.bubbles}")
 
     @property
     def enabled(self) -> frozenset[str]:

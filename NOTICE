@@ -62,3 +62,11 @@ OFL 要求：保留版权声明与保留字体名；不得单独售卖字体。
 - 使用者须自行确保其行为符合当地法律与作品版权要求。
 - 本项目不提供、不分发任何受版权保护的漫画内容。
 - API Key 由用户自备，项目不收集、不上传。
+
+## 可选模型（不随仓库分发，由用户自行下载）
+
+- ogkalu/comic-speech-bubble-detector (Apache-2.0) — 气泡检测
+- ogkalu/comic-text-and-bubble-detector (Apache-2.0) — 文字 + 气泡检测
+- Carve/LaMa-ONNX (Apache-2.0) — 掩膜修复
+- kha-white/manga-ocr-base (Apache-2.0) — 日文 OCR
+- dmMaze/comic-text-detector (GPL-3.0) — 文字检测

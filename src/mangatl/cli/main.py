@@ -73,6 +73,9 @@ def default_registries() -> tuple[
         inpainters.add("diffusion", DiffusionInpainter)
         inpainters.add("auto", AutoInpainter)
         inpainters.add("masked", MaskedInpainter)
+        from mangatl.adapters.inpaint.lama import LamaInpainter
+
+        inpainters.add("lama", LamaInpainter)
 
     translators: DetectorRegistry = Registry("translator")
     translators.add("echo", EchoTranslator)
@@ -107,6 +110,18 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--translator", default=default_translator)
     run.add_argument("--source-lang", default="ja")
     run.add_argument("--target-lang", default="zh-CN")
+    run.add_argument(
+        "--bubbles",
+        choices=("auto", "model", "heuristic", "off"),
+        default="auto",
+        help="bubble detection: auto uses the ONNX model when present, "
+        "heuristic falls back to the pixel test, off erases every block",
+    )
+    run.add_argument(
+        "--bubble-model",
+        default="data/models/bubble_detector.onnx",
+        help="path to the YOLOv8 bubble detector ONNX file",
+    )
     run.add_argument(
         "--erase-scope",
         choices=("strict", "bright", "all"),
@@ -152,6 +167,21 @@ def _build_parser() -> argparse.ArgumentParser:
     probe = sub.add_parser("probe", help="print an ONNX model's inputs and outputs")
     probe.add_argument("model", type=Path, help="path to a .onnx file")
     return parser
+
+
+def _build_bubble_detector(config: RunConfig):
+    """Instantiate the bubble detector, honouring the requested mode."""
+    if config.bubbles in ("off", "heuristic"):
+        return None
+    from mangatl.adapters.detectors.bubbles import BubbleDetector
+
+    detector = BubbleDetector(config.bubble_model)
+    if config.bubbles == "model" and not detector.available:
+        raise FileNotFoundError(
+            f"bubble model not found: {config.bubble_model}\n"
+            "hint: download it as described in docs/bubble-and-inpaint-plan.md"
+        )
+    return detector
 
 
 def _run_translate_test(text: str, target: str) -> int:
@@ -267,7 +297,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         force=args.force,
         sfx_policy=args.sfx,
         erase_background=args.erase_background,
-        erase_scope=args.erase_scope,
+        erase_scope="all" if args.bubbles == "off" else args.erase_scope,
+        bubbles=args.bubbles,
+        bubble_model=args.bubble_model,
         keep_blocks=tuple(filter(None, (s.strip() for s in args.keep_blocks.split(",")))),
         force_blocks=tuple(filter(None, (s.strip() for s in args.erase_blocks.split(",")))),
     )
@@ -288,6 +320,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         inpainter: Inpainter = (
             inpainters.get(config.inpainter)() if "erase" in enabled else CopyInpainter()
         )
+        bubble_detector = _build_bubble_detector(config)
         translator: Translator = (
             translators.get(config.translator)() if "translate" in enabled else EchoTranslator()
         )
@@ -306,7 +339,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     project.scan()
     service = PipelineService(
-        project, detector, ocr, inpainter, translator=translator, on_event=_print_event
+        project,
+        detector,
+        ocr,
+        inpainter,
+        translator=translator,
+        bubble_detector=bubble_detector,
+        on_event=_print_event,
     )
     summary = service.run(config)
     print(json.dumps(asdict(summary), ensure_ascii=False))

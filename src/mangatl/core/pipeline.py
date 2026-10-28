@@ -68,6 +68,7 @@ class PipelineService:
         inpainter: Inpainter,
         translator: Translator | None = None,
         renderer: PageRenderer | None = None,
+        bubble_detector=None,
         on_event: EventFn | None = None,
     ) -> None:
         self.project = project
@@ -76,6 +77,7 @@ class PipelineService:
         self.inpainter = inpainter
         self.translator = translator or EchoTranslator()
         self.renderer = renderer or PageRenderer()
+        self.bubble_detector = bubble_detector
         self.on_event = on_event
 
     def run(self, config: RunConfig) -> RunSummary:
@@ -118,7 +120,7 @@ class PipelineService:
                 assign_roles(page, config)
             elif stage == "translate":
                 ensure_mask(page, image_path, self.detector)
-                annotate_bubbles(page, image_path, config.erase_scope)
+                annotate_bubbles(page, image_path, config.erase_scope, self.bubble_detector)
                 assign_roles(page, config)
                 for block in page.blocks:
                     if block.role == BlockRole.SYMBOL.value:
@@ -137,7 +139,7 @@ class PipelineService:
                     )
             elif stage == "render":
                 ensure_mask(page, image_path, self.detector)
-                annotate_bubbles(page, image_path, config.erase_scope)
+                annotate_bubbles(page, image_path, config.erase_scope, self.bubble_detector)
                 assign_roles(page, config)
                 source = self.project.directory / config.output_dirname / page.name
                 if not source.is_file():
@@ -150,7 +152,7 @@ class PipelineService:
                 if page.size is None:
                     page.size = _image_size(image_path)
                 ensure_mask(page, image_path, self.detector)
-                annotate_bubbles(page, image_path, config.erase_scope)
+                annotate_bubbles(page, image_path, config.erase_scope, self.bubble_detector)
                 assign_roles(page, config)
                 destination = self.project.directory / config.output_dirname / page.name
                 keep = {item.strip() for item in config.keep_blocks}
@@ -340,12 +342,32 @@ def ensure_mask(page: Page, image_path: Path, detector) -> None:
         page.text_mask = detector.text_mask(image_path)
 
 
-def annotate_bubbles(page: Page, image_path: Path, scope: str = "strict") -> None:
+def annotate_with_model(page: Page, image_path: Path, detector) -> bool:
+    """Mark blocks inside model-detected bubbles; returns whether it ran."""
+    if detector is None or not getattr(detector, "available", False):
+        return False
+    try:
+        from mangatl.adapters.detectors.bubbles import coverage
+
+        bubbles = detector.detect(image_path)
+    except Exception:  # a broken model must not stop the page
+        return False
+    if not bubbles:
+        return False
+    for block in page.blocks:
+        block.in_bubble = coverage(block.bbox, bubbles) >= 0.8
+    return True
+
+
+def annotate_bubbles(page: Page, image_path: Path, scope: str = "strict", detector=None) -> None:
     """Mark each block as inside a closed bubble region or embedded in artwork."""
     try:
         import numpy as np
         from PIL import Image
     except ImportError:  # pragma: no cover - numpy/Pillow optional for stubs
+        return
+
+    if annotate_with_model(page, image_path, detector):
         return
 
     with Image.open(image_path) as handle:

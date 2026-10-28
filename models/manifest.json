@@ -1,0 +1,40 @@
+{
+  "models": [
+    {
+      "name": "comictextdetector",
+      "file": "data/models/comictextdetector.pt.onnx",
+      "kind": "text-detection",
+      "license": "GPL-3.0",
+      "urls": [
+        "https://github.com/dmMaze/comic-text-detector"
+      ],
+      "sha256": "1a86ace74961413cbd650002e7bb4dcec4980ffa21b2f19b86933372071d718f",
+      "size": 94669756
+    },
+    {
+      "name": "bubble_detector",
+      "file": "data/models/bubble_detector.onnx",
+      "kind": "bubble-detection",
+      "license": "Apache-2.0",
+      "urls": [
+        "https://hf-mirror.com/ogkalu/comic-speech-bubble-detector",
+        "https://hf-mirror.com/ogkalu/comic-text-and-bubble-detector"
+      ],
+      "sha256": "",
+      "size": 0,
+      "note": "run tools/register_model.py after export to fill sha256 and size"
+    },
+    {
+      "name": "lama",
+      "file": "data/models/lama.onnx",
+      "kind": "inpainting",
+      "license": "Apache-2.0",
+      "urls": [
+        "https://hf-mirror.com/Carve/LaMa-ONNX"
+      ],
+      "sha256": "",
+      "size": 0,
+      "note": "optional; without it the masked filler is used"
+    }
+  ]
+}
