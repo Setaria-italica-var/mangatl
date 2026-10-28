@@ -69,11 +69,20 @@ data/models/
 获取（在本机终端，需要能访问 HF 镜像）：
 
 ```bat
+:: 推荐：项目自带下载器，不依赖 huggingface-cli
 set HF_ENDPOINT=https://hf-mirror.com
-uv pip install huggingface_hub ultralytics
-huggingface-cli download ogkalu/comic-speech-bubble-detector --local-dir data/models/bubble-src
-python -c "from ultralytics import YOLO; YOLO('data/models/bubble-src/best.pt').export(format='onnx', imgsz=640, opset=12, simplify=True)"
-move data\models\bubble-src\best.onnx data\models\bubble_detector.onnx
+uv pip install ultralytics
+python -m mangatl fetch-models
+```
+
+`fetch-models` 会拉取模型卡文件列表、下载 `best.pt` 等权重，并在装了
+`ultralytics` 时自动导出 `data/models/bubble_detector.onnx`。
+
+替代方案（HF 官方 CLI 从 0.34 起改名为 `hf`，旧名 `huggingface-cli` 可能不存在）：
+
+```bat
+hf download ogkalu/comic-speech-bubble-detector --local-dir data/models/bubble-src
+python -c "from huggingface_hub import snapshot_download as d; d('ogkalu/comic-speech-bubble-detector', local_dir='data/models/bubble-src')"
 ```
 
 验证：`python -m mangatl probe data\models\bubble_detector.onnx` 应打印

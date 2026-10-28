@@ -161,6 +161,13 @@ def _build_parser() -> argparse.ArgumentParser:
     check.add_argument("--text", default="おはよう")
     check.add_argument("--target-lang", default="Simplified Chinese")
 
+    fetch = sub.add_parser("fetch-models", help="download model weights from the HF hub")
+    fetch.add_argument("--repo", default="ogkalu/comic-speech-bubble-detector")
+    fetch.add_argument("--dest", type=Path, default=Path("data/models/bubble-src"))
+    fetch.add_argument("--endpoint", default="")
+    fetch.add_argument("--no-export", action="store_true")
+    fetch.add_argument("--imgsz", type=int, default=640)
+
     inspect = sub.add_parser("inspect", help="print the stored block decisions for a project")
     inspect.add_argument("directory", type=Path)
 
@@ -215,6 +222,38 @@ def _run_translate_test(text: str, target: str) -> int:
         print(f"error: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
     print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _run_fetch_models(args) -> int:
+    """Download weights and export ONNX; returns a process exit code."""
+    from mangatl.tools.fetch import fetch
+
+    base = args.endpoint or None
+    try:
+        exported = fetch(
+            repo=args.repo,
+            destination=args.dest,
+            base=base,
+            export=not args.no_export,
+            imgsz=args.imgsz,
+        )
+    except Exception as exc:  # noqa: BLE001 - network failures are user-facing
+        print(f"error: {type(exc).__name__}: {exc}", file=sys.stderr)
+        print(
+            "hint: check HF_ENDPOINT (mirror) and that the repo name is correct",
+            file=sys.stderr,
+        )
+        return 1
+
+    if exported is None:
+        print(
+            "weights downloaded; export to ONNX then register:\n"
+            f"  --bubble-model {args.dest}/bubble_detector.onnx",
+            file=sys.stderr,
+        )
+        return 0
+    print(f"done: {exported}")
     return 0
 
 
@@ -282,6 +321,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_translate_test(args.text, args.target_lang)
     if args.command == "inspect":
         return _run_inspect(args.directory)
+    if args.command == "fetch-models":
+        return _run_fetch_models(args)
     if args.command != "run":  # pragma: no cover - argparse enforces the choices
         return 2
 
