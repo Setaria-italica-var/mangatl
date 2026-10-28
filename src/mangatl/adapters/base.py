@@ -17,9 +17,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Generic, Protocol, TypeVar, runtime_checkable
+from typing import TYPE_CHECKING, Generic, Protocol, TypeVar, runtime_checkable
 
 from mangatl.domain.block import TextBlock
+
+if TYPE_CHECKING:
+    import numpy as np
 
 T = TypeVar("T")
 
@@ -55,8 +58,13 @@ class Inpainter(Protocol):
         image_path: Path,
         destination: Path,
         blocks: Sequence[TextBlock] = (),
+        mask: np.ndarray | None = None,
     ) -> None:
-        """Write the erased page to ``destination``."""
+        """Write the erased page to ``destination``.
+
+        ``mask`` is the detector's per-pixel text probability when available;
+        adapters that ignore it must still accept the keyword.
+        """
 
 
 class Registry(Generic[T]):

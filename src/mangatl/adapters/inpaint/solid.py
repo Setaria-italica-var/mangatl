@@ -134,6 +134,7 @@ class SolidFillInpainter:
         image_path: Path,
         destination: Path,
         blocks: Sequence[TextBlock] = (),
+        mask=None,
     ) -> None:
         """Write ``destination`` with every solid-background block filled."""
         with Image.open(image_path) as handle:

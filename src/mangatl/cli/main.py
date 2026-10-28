@@ -48,6 +48,7 @@ def default_registries() -> tuple[DetectorRegistry, DetectorRegistry, DetectorRe
     try:
         from mangatl.adapters.inpaint.auto import AutoInpainter
         from mangatl.adapters.inpaint.diffusion import DiffusionInpainter
+        from mangatl.adapters.inpaint.masked import MaskedInpainter
         from mangatl.adapters.inpaint.solid import SolidFillInpainter
     except ImportError:  # numpy / Pillow missing
         pass
@@ -55,6 +56,7 @@ def default_registries() -> tuple[DetectorRegistry, DetectorRegistry, DetectorRe
         inpainters.add("solid", SolidFillInpainter)
         inpainters.add("diffusion", DiffusionInpainter)
         inpainters.add("auto", AutoInpainter)
+        inpainters.add("masked", MaskedInpainter)
     return detectors, ocrs, inpainters
 
 

@@ -99,14 +99,19 @@ class PipelineService:
                 continue
             self._emit(EVENT_STAGE_START, page.name, stage)
             if stage == "detect":
-                page.blocks = self.detector.detect(image_path)
+                if hasattr(self.detector, "detect_with_mask"):
+                    page.blocks, page.text_mask = self.detector.detect_with_mask(image_path)
+                else:
+                    page.blocks = self.detector.detect(image_path)
             elif stage == "ocr":
                 if not page.blocks:
                     raise ValueError(f"{page.name}: OCR needs blocks from the detect stage")
                 page.blocks = self.ocr.recognize(image_path, page.blocks)
             elif stage == "erase":
                 destination = self.project.directory / config.output_dirname / page.name
-                self.inpainter.erase(image_path, destination, page.blocks)
+                self.inpainter.erase(
+                    image_path, destination, page.blocks, mask=page.text_mask
+                )
             page.mark(stage)
             ran_any = True
             self._emit(EVENT_STAGE_DONE, page.name, stage)

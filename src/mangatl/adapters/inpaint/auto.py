@@ -43,8 +43,14 @@ class AutoInpainter:
         image_path: Path,
         destination: Path,
         blocks: Sequence[TextBlock] = (),
+        mask=None,
     ) -> None:
-        """Write ``destination`` with every block removed."""
+        """Write ``destination`` with every block removed.
+
+        ``mask`` is accepted for protocol compatibility; use
+        :class:`~mangatl.adapters.inpaint.masked.MaskedInpainter` when the
+        detector's per-pixel mask is available.
+        """
         with Image.open(image_path) as handle:
             image = handle.convert("RGBA" if "A" in handle.getbands() else "RGB")
         pixels = np.array(image)

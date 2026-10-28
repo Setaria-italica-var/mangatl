@@ -256,6 +256,11 @@ class CtdDetector:
 
     def detect(self, image_path: Path) -> list[TextBlock]:
         """Return blocks in reading order (right to left when mostly vertical)."""
+        blocks, _ = self.detect_with_mask(image_path)
+        return blocks
+
+    def detect_with_mask(self, image_path: Path) -> tuple[list[TextBlock], np.ndarray]:
+        """Return blocks plus the per-pixel text probability for the inpainter."""
         with Image.open(image_path) as handle:
             width, height = handle.size
         probability = self.text_mask(image_path)
@@ -283,7 +288,7 @@ class CtdDetector:
             for x1, y1, x2, y2 in small_boxes
         ]
         boxes = merge_lines(boxes)
-        return self._to_blocks(boxes, width, height)
+        return self._to_blocks(boxes, width, height), probability
 
     @staticmethod
     def _to_blocks(

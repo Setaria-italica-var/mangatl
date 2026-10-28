@@ -82,6 +82,7 @@ class CopyInpainter:
         image_path: Path,
         destination: Path,
         blocks: Sequence[TextBlock] = (),
+        mask=None,
     ) -> None:
         """Copy ``image_path`` to ``destination``, creating parents as needed."""
         destination.parent.mkdir(parents=True, exist_ok=True)

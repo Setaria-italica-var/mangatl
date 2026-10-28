@@ -163,6 +163,7 @@ class DiffusionInpainter:
         image_path: Path,
         destination: Path,
         blocks: Sequence[TextBlock] = (),
+        mask=None,
     ) -> None:
         """Write ``destination`` with the blocks diffused away."""
         with Image.open(image_path) as handle:

@@ -32,6 +32,8 @@ src/mangatl/
   adapters/inpaint/diffusion.py  金字塔 + 扩散修复（无权重，CPU 可用）
   adapters/inpaint/auto.py       复合抹字：纯色优先，其余走扩散
   adapters/detectors/ctd.py      CTD 检测（ONNX，无 torch/cv2）：掩膜 → 连通域 → 行合并 → 阅读顺序
+  adapters/imaging.py            Otsu/墨迹掩膜、行程并查集连通域、结构线判定（实线/虚线/嵌套/黑块）
+  adapters/inpaint/masked.py     掩膜约束擦除：只抹字，保留气泡线；纯色块走中位色，其余走扩散
   core/config.py         RunConfig（不可变）+ resolve()
   core/pipeline.py       PipelineService / Event / RunSummary
   cli/main.py            argparse 入口（缺依赖的适配器自动不注册）
@@ -42,6 +44,7 @@ tests/test_inpaint_diffusion.py 7 个用例：掩膜、纯色、梯度、大洞�
 tests/test_encoding.py        全部文本文件：UTF-8 与乱码守卫
 tests/test_demo.py            3 个用例：页数/尺寸、确定性、变体差异
 tests/test_ctd_detector.py    7 个用例：连通域、小噪点过滤、膨胀、行合并、letterbox、模型路径覆盖
+tests/test_inpaint_masked.py  7 个用例：Otsu/墨迹、连通域计数、结构判定、实线/虚线/嵌套/无气泡
 src/mangatl/tools/demo.py     合成页生成器（`python -m mangatl demo`）
 docs/m0-plan.md        本文件
 ```
@@ -101,7 +104,7 @@ python -m ruff check .
 
 按依赖从少到多推进，每步都可独立验证：
 
-1. **Inpainter 无权重方案（已完成）**：`solid`（纯色环判定 + 中位色）与 `diffusion`（金字塔 + 拉普拉斯），`auto` 把两者串起来；合成图测试覆盖。
+1. **Inpainter 无权重方案（已完成）**：`solid`、`diffusion`、`auto`，以及`masked`（掩膜约束，保留气泡线）；合成图测试覆盖实线/虚线/嵌套/无气泡四种样式。
 2. **Inpainter → LaMa**：torch 已装（CPU 版），还缺权重与模型代码；接上后 `auto` 的第三级分支。
 3. **Detector → CTD（已完成，ONNX）**：`adapters/detectors/ctd.py`；权重 `data/models/comictextdetector.pt.onnx`。
 4. **OCR → manga-ocr（日）/ PP-OCR（英）**：onnxruntime 或 torch。

@@ -36,6 +36,9 @@ class Page:
     name: str
     blocks: list[TextBlock] = field(default_factory=list)
     stage: dict[str, int] = field(default_factory=lambda: dict.fromkeys(STAGES, 0))
+    # Transient per-run data: the detector's text probability, handed to the
+    # inpainter without being persisted (it is large and derived).
+    text_mask: Any = field(default=None, repr=False, compare=False)
 
     def is_done(self, stage: str) -> bool:
         """Return whether ``stage`` has already been completed for this page."""
