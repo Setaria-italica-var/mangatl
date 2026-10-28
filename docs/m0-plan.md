@@ -36,6 +36,7 @@ src/mangatl/
   adapters/inpaint/masked.py     掩膜约束擦除：只抹字，保留气泡线；纯色块走中位色，其余走扩散
   adapters/ocr/manga_ocr.py      manga-ocr 适配器（日文，竖排先旋转 90°）
   domain/roles.py                块级语义判定：dialogue / sfx / texture（用 OCR 结果做证据）
+  render/style.py                样式估计：前景/背景色、字号、笔画粗细、粗细体、衬线、斜体、对齐
   core/config.py         RunConfig（不可变）+ resolve()
   core/pipeline.py       PipelineService / Event / RunSummary
   cli/main.py            argparse 入口（缺依赖的适配器自动不注册）
@@ -49,6 +50,7 @@ tests/test_ctd_detector.py    7 个用例：连通域、小噪点过滤、膨胀
 tests/test_inpaint_masked.py  7 个用例：Otsu/墨迹、连通域计数、结构判定、实线/虚线/嵌套/无气泡
 tests/test_roles.py           8 个用例：对话/拟声词/花纹/低置信/阈值可配
 tests/test_ocr_manga.py       4 个用例：裁剪、竖排旋转、越界跳过、单块失败不影响整页
+tests/test_style.py           7 个用例：粗细体、颜色、灰字、行数→字号、对齐、掩膜优先
 src/mangatl/tools/demo.py     合成页生成器（`python -m mangatl demo`）
 docs/m0-plan.md        本文件
 ```
