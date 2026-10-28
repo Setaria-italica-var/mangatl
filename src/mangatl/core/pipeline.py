@@ -117,6 +117,7 @@ class PipelineService:
                 page.blocks = self.ocr.recognize(image_path, page.blocks)
                 assign_roles(page, config)
             elif stage == "translate":
+                annotate_bubbles(page, image_path)
                 assign_roles(page, config)
                 for block in page.blocks:
                     if block.role == BlockRole.SYMBOL.value:
@@ -134,6 +135,7 @@ class PipelineService:
                         },
                     )
             elif stage == "render":
+                annotate_bubbles(page, image_path)
                 assign_roles(page, config)
                 source = self.project.directory / config.output_dirname / page.name
                 if not source.is_file():
@@ -147,6 +149,7 @@ class PipelineService:
                     page.size = _image_size(image_path)
                 if page.text_mask is None and hasattr(self.detector, "text_mask"):
                     page.text_mask = self.detector.text_mask(image_path)
+                annotate_bubbles(page, image_path)
                 assign_roles(page, config)
                 destination = self.project.directory / config.output_dirname / page.name
                 erasable = [block for block in page.blocks if should_erase(block, config)]
@@ -202,6 +205,27 @@ def mask_coverage(page: Page, block: TextBlock, threshold: float = 0.5) -> float
     return float((region > threshold).mean())
 
 
+def annotate_bubbles(page: Page, image_path: Path) -> None:
+    """Mark blocks whose surroundings are flat (i.e. inside a speech bubble).
+
+    A light, uniform ring means the block sits on bubble paper and its glyphs are
+    dialogue or an in-bubble sound effect. A busy ring means the text is embedded
+    in the artwork, which must not be erased.
+    """
+    try:
+        import numpy as np
+        from PIL import Image
+
+        from mangatl.adapters.inpaint.solid import SolidFillConfig, is_solid
+    except ImportError:  # pragma: no cover - numpy/Pillow optional for stubs
+        return
+    with Image.open(image_path) as handle:
+        pixels = np.array(handle.convert("RGB"))
+    config = SolidFillConfig()
+    for block in page.blocks:
+        block.in_bubble = is_solid(pixels, block.bbox, config)
+
+
 def assign_roles(page: Page, config: RunConfig) -> None:
     """Classify every block as dialogue / SFX / texture, using the OCR result."""
     settings = RoleConfig()
@@ -221,6 +245,11 @@ def assign_roles(page: Page, config: RunConfig) -> None:
         block.bbox_erase = not (block.area_fraction > 0.35 and coverage < 0.1)
         block.role = decision.role.value
         block.role_reasons = decision.reasons
+        if block.role in (BlockRole.SFX.value, BlockRole.SYMBOL.value) and not block.in_bubble:
+            # Sound effects printed over the artwork are part of the drawing:
+            # keep them untouched and out of the translation budget.
+            block.role = BlockRole.TEXTURE.value
+            block.role_reasons = (*decision.reasons, "background-art")
         if decision.role is BlockRole.DIALOGUE and confidence < 0.5:
             block.needs_review = True
 

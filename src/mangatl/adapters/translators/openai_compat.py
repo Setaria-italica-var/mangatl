@@ -98,6 +98,11 @@ class OpenAiTranslator:
 
     def __init__(self, config: LlmConfig | None = None, transport: Any = None) -> None:
         self.config = config or LlmConfig.from_env()
+        if not self.config.api_key:
+            raise TranslationError(
+                "MANGATL_API_KEY is not set: the translator would silently return "
+                "the source text. Set the key or use --translator echo explicitly."
+            )
         self._transport = transport or _Transport()
 
     # -- public API -------------------------------------------------------

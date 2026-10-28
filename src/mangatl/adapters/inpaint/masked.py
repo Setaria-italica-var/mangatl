@@ -38,7 +38,7 @@ from mangatl.domain.block import TextBlock
 class MaskedConfig:
     """Tuning knobs for mask-constrained erasing."""
 
-    text_threshold: float = 0.5
+    text_threshold: float = 0.45
     grow: int = 1
     structure_dilate: int = 1
     diffusion: DiffusionConfig = DiffusionConfig(expand=0, iterations=64)
@@ -46,16 +46,34 @@ class MaskedConfig:
 
 
 def dilate(mask: np.ndarray, radius: int = 1) -> np.ndarray:
-    """Grow a boolean mask by a square element."""
+    """Grow a boolean mask by a square element (no wrap-around at the edges)."""
     if radius <= 0:
         return mask
-    out = mask.copy()
-    for dy in range(-radius, radius + 1):
-        for dx in range(-radius, radius + 1):
-            if dy == 0 and dx == 0:
-                continue
-            out |= np.roll(np.roll(mask, dy, axis=0), dx, axis=1)
+    height, width = mask.shape
+    padded = np.pad(mask, radius, mode="constant", constant_values=False)
+    out = np.zeros_like(mask)
+    for dy in range(2 * radius + 1):
+        for dx in range(2 * radius + 1):
+            out |= padded[dy : dy + height, dx : dx + width]
     return out
+
+
+def erode(mask: np.ndarray, radius: int = 1) -> np.ndarray:
+    """Shrink a boolean mask (the dual of :func:`dilate`)."""
+    if radius <= 0:
+        return mask
+    return ~dilate(~mask, radius)
+
+
+def close_holes(mask: np.ndarray, radius: int = 1) -> np.ndarray:
+    """Fill holes up to ``2*radius`` inside glyph shapes without growing them.
+
+    Detector masks often light up the outline of a thick stroke and leave its
+    middle dark; closing fills that middle while keeping the outer boundary.
+    """
+    if radius <= 0:
+        return mask
+    return erode(dilate(mask, radius), radius)
 
 
 def erased_mask(
@@ -64,36 +82,32 @@ def erased_mask(
     config: MaskedConfig,
     blocks: Sequence[TextBlock] = (),
 ) -> np.ndarray:
-    """Pixels to erase: detector text or block area, minus structural ink.
+    """Pixels to erase: the detector's mask minus structural ink.
 
-    The detector's mask is precise but can be thinner than the glyphs (a solid
-    demo glyph only lights up near its outline), so the block boxes are unioned
-    in. Structure is subtracted per pixel afterwards, which keeps bubble outlines
-    safe even when a box touches them.
-
-    ``blocks`` is the *erasable* subset: SFX and texture blocks are filtered out
-    by the pipeline before this point, and their pixels must stay untouched even
-    if the detector's mask covers them.
+    Only text pixels are ever touched. An earlier version also unioned the whole
+    block box to fill gaps in the mask, which turned nested bubbles into solid
+    rectangles and smeared artwork; the gaps are closed morphologically instead.
     """
     gray = np.asarray(Image.fromarray(pixels[..., :3]).convert("L"))
     allowed = np.zeros(gray.shape, dtype=bool)
-    bbox_area = np.zeros(gray.shape, dtype=bool)
     height, width = gray.shape
     for block in blocks:
         x1, y1, x2, y2 = clip_bbox(block.bbox, width, height)
         allowed[y1:y2, x1:x2] = True
-        if block.bbox_erase:
-            bbox_area[y1:y2, x1:x2] = True
     if not allowed.any():
         return allowed
 
     text = (probability > config.text_threshold) & allowed
+    text = close_holes(text, radius=1)
+    # Grow *before* subtracting structure: growing afterwards would eat one pixel
+    # of bubble outline wherever text touches it.
+    text = dilate(text, config.grow)
     ink = ink_mask(gray)
     labels, stats = label_components(ink)
-    structure = structure_mask(labels, stats, text | bbox_area, bbox_area)
+    structure = structure_mask(labels, stats, text, allowed)
     if config.structure_dilate:
         structure = dilate(structure, config.structure_dilate)
-    return dilate((text | bbox_area) & ~structure, config.grow)
+    return text & ~structure
 
 
 class MaskedInpainter:

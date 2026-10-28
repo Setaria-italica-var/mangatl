@@ -42,3 +42,38 @@ def test_oversized_block_erases_mask_only() -> None:
 
     assert should_erase(item, RunConfig())
     assert not item.bbox_erase  # the artwork underneath must survive
+
+
+def test_sfx_outside_a_bubble_becomes_texture() -> None:
+    from mangatl.core.pipeline import assign_roles
+    from mangatl.domain.project import Page
+
+    page = Page(name="p", blocks=[make_block(text="ドドド", role="sfx", in_bubble=False)])
+    assign_roles(page, RunConfig())
+
+    assert page.blocks[0].role == "texture"
+    assert "background-art" in page.blocks[0].role_reasons
+    assert not should_erase(page.blocks[0], RunConfig())
+
+
+def test_sfx_inside_a_bubble_is_translated() -> None:
+    from mangatl.core.pipeline import assign_roles, should_translate
+    from mangatl.domain.project import Page
+
+    page = Page(name="p", blocks=[make_block(text="ドドド", role="sfx", in_bubble=True)])
+    assign_roles(page, RunConfig())
+
+    assert page.blocks[0].role == "sfx"
+    assert should_erase(page.blocks[0], RunConfig())
+    assert should_translate(page.blocks[0], RunConfig())
+
+
+def test_symbol_outside_a_bubble_is_left_alone() -> None:
+    from mangatl.core.pipeline import assign_roles
+    from mangatl.domain.project import Page
+
+    page = Page(name="p", blocks=[make_block(text="！！", role="symbol", in_bubble=False)])
+    assign_roles(page, RunConfig())
+
+    assert page.blocks[0].role == "texture"
+    assert not should_erase(page.blocks[0], RunConfig())

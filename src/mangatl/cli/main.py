@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Sequence
 from dataclasses import asdict
@@ -102,7 +103,8 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--detector", default="grid")
     run.add_argument("--ocr", default="echo")
     run.add_argument("--inpainter", default="copy")
-    run.add_argument("--translator", default="echo")
+    default_translator = "openai" if os.environ.get("MANGATL_API_KEY") else "echo"
+    run.add_argument("--translator", default=default_translator)
     run.add_argument("--source-lang", default="ja")
     run.add_argument("--target-lang", default="zh-CN")
     run.add_argument(
@@ -235,7 +237,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         translator: Translator = (
             translators.get(config.translator)() if "translate" in enabled else EchoTranslator()
         )
-    except (KeyError, ImportError, FileNotFoundError) as exc:
+    except Exception as exc:  # noqa: BLE001 - adapter construction is startup
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
@@ -254,6 +256,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     summary = service.run(config)
     print(json.dumps(asdict(summary), ensure_ascii=False))
+    if "render" in enabled and config.translator == "echo":
+        print(
+            "warning: translator=echo copies the source text, so the rendered pages "
+            "still show the original language. Set MANGATL_API_KEY and pass "
+            "--translator openai.",
+            file=sys.stderr,
+        )
     return 0 if summary.failed == 0 else 1
 
 
