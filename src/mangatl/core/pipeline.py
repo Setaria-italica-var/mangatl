@@ -153,7 +153,15 @@ class PipelineService:
                 annotate_bubbles(page, image_path, config.erase_scope)
                 assign_roles(page, config)
                 destination = self.project.directory / config.output_dirname / page.name
-                erasable = [block for block in page.blocks if should_erase(block, config)]
+                keep = {item.strip() for item in config.keep_blocks}
+                forced = {item.strip() for item in config.force_blocks}
+                erasable = [
+                    block
+                    for block in page.blocks
+                    if (f"{page.name}:{block.id}" in forced)
+                    or (should_erase(block, config)
+                        and f"{page.name}:{block.id}" not in keep)
+                ]
                 self.inpainter.erase(
                     image_path, destination, erasable, mask=page.text_mask
                 )

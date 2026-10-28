@@ -115,6 +115,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "light backgrounds; all: every detected block",
     )
     run.add_argument(
+        "--keep-blocks",
+        default="",
+        help="comma separated page:id pairs to always keep, e.g. 001.jpg:3,001.jpg:5",
+    )
+    run.add_argument(
+        "--erase-blocks",
+        default="",
+        help="comma separated page:id pairs to always erase",
+    )
+    run.add_argument(
         "--erase-background",
         action="store_true",
         help="also erase text that is not inside a bubble (off by default)",
@@ -258,6 +268,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         sfx_policy=args.sfx,
         erase_background=args.erase_background,
         erase_scope=args.erase_scope,
+        keep_blocks=tuple(filter(None, (s.strip() for s in args.keep_blocks.split(",")))),
+        force_blocks=tuple(filter(None, (s.strip() for s in args.erase_blocks.split(",")))),
     )
 
     detectors, ocrs, inpainters, translators = default_registries()

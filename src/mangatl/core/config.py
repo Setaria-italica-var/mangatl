@@ -32,6 +32,8 @@ class RunConfig:
     sfx_policy: str = "erase"
     erase_background: bool = False
     erase_scope: str = "strict"
+    keep_blocks: tuple[str, ...] = ()
+    force_blocks: tuple[str, ...] = ()
     extra: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
