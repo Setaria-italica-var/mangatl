@@ -33,6 +33,12 @@ def default_registries() -> tuple[DetectorRegistry, DetectorRegistry, DetectorRe
     """
     detectors: DetectorRegistry = Registry("detector")
     detectors.add("grid", GridDetector)
+    try:
+        from mangatl.adapters.detectors.ctd import CtdDetector
+    except ImportError:  # numpy / Pillow missing
+        pass
+    else:
+        detectors.add("ctd", CtdDetector)
 
     ocrs: DetectorRegistry = Registry("ocr")
     ocrs.add("echo", EchoOcr)
@@ -139,7 +145,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         detector = detectors.get(config.detector)()
         ocr: Ocr = ocrs.get(config.ocr)()
         inpainter: Inpainter = inpainters.get(config.inpainter)()
-    except KeyError as exc:
+    except (KeyError, ImportError, FileNotFoundError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
