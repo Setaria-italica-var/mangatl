@@ -19,7 +19,7 @@ from pathlib import Path
 from mangatl.adapters.base import Inpainter, Ocr, Registry
 from mangatl.adapters.stubs import CopyInpainter, EchoOcr, GridDetector
 from mangatl.core.config import STAGE_ORDER, RunConfig
-from mangatl.core.pipeline import EVENT_PAGE_DONE, Event, PipelineService
+from mangatl.core.pipeline import EVENT_PAGE_DONE, EVENT_PAGE_FAILED, Event, PipelineService
 from mangatl.domain.project import Project
 
 DetectorRegistry = Registry[type]
