@@ -29,12 +29,15 @@ src/mangatl/
   adapters/base.py       Detector / Ocr / Inpainter 协议 + Registry
   adapters/stubs.py      GridDetector / EchoOcr / CopyInpainter
   adapters/inpaint/solid.py   纯色气泡快路径（需 extra `vision`：numpy + Pillow）
+  adapters/inpaint/diffusion.py  金字塔 + 扩散修复（无权重，CPU 可用）
+  adapters/inpaint/auto.py       复合抹字：纯色优先，其余走扩散
   core/config.py         RunConfig（不可变）+ resolve()
   core/pipeline.py       PipelineService / Event / RunSummary
   cli/main.py            argparse 入口（缺依赖的适配器自动不注册）
   __main__.py            python -m mangatl
 tests/test_pipeline_stub.py   7 个用例：全阶段、跳过、force、坏页隔离、缺目录、非法阶段、事件
 tests/test_inpaint_solid.py   7 个用例：纯色判定、细描边容忍、梯度拒绝、中位色、填充、跳过、alpha 保留
+tests/test_inpaint_diffusion.py 7 个用例：掩膜、纯色、梯度、大洞收敛、alpha、auto 两分支
 tests/test_encoding.py        32 个文件：UTF-8 与乱码守卫
 docs/m0-plan.md        本文件
 ```
@@ -91,8 +94,8 @@ python -m ruff check .
 
 按依赖从少到多推进，每步都可独立验证：
 
-1. **Inpainter 快路径（已完成）**：`adapters/inpaint/solid.py`，纯色环判定 + 中位色填充，合成图测试覆盖。
-2. **Inpainter → LaMa**：torch + numpy + opencv；与快路径组成「先判纯色、否则走模型」的复合抹字器。
+1. **Inpainter 无权重方案（已完成）**：`solid`（纯色环判定 + 中位色）与 `diffusion`（金字塔 + 拉普拉斯），`auto` 把两者串起来；合成图测试覆盖。
+2. **Inpainter → LaMa**：torch 已装（CPU 版），还缺权重与模型代码；接上后 `auto` 的第三级分支。
 3. **Detector → CTD**：torch + 模型权重，产出 bbox / lines / mask。
 4. **OCR → manga-ocr（日）/ PP-OCR（英）**：onnxruntime 或 torch。
 
