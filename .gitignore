@@ -9,37 +9,36 @@ dist/
 .ruff_cache/
 .mypy_cache/
 
-# 闁哄鏅滈崝姗€銆侀幋锕€绫嶉柤绋跨仛濞堝爼鏌熺拠鈥虫珯缂佽鲸鐟х槐鎺戔攽閸涱垳鎲归梺鍦帛閸旀帒顫濋敃鍌涙櫖?data/
+# 运行时数据（绝不提交：模型、缓存、项目、日志）
+data/
 projects/
 logs/
+samples/
 *.ckpt
 *.pt
 *.pth
 *.onnx
 *.safetensors
 
-# 闂佸搫鐗滈崜娆忥耿閹绢喗鐓€鐎广儱娲ㄩ弸鍌氣槈閹炬娊顎楅柣锔藉灴閺?.env
+# 本地配置与密钥
+.env
 *.local.json
 secrets.enc
 
-# 缂傚倸鍊归悧鐐垫椤愶箑闂?/ 缂備緡鍨靛畷鐢靛垝?.vscode/
-.idea/
-Thumbs.db
-desktop.ini
-
-# 闁哄啨鍎辩换鏃€绋夋惔銏⑩偓顖氼嚈鏉炰即鐛撻柣?*.log
-pip*.log
-wheels/
-tmpw/
-
-# pip/濞村鐦稉瀛樻濞堝鏆€
-pip-*/
-pytest-cache-files-*/
-.tmp/
-
-# 鏈湴涓存椂/鏍锋湰
+# 本地临时目录
 .tmp/
 .pytest-tmp/
 .acl-reports/
-samples/
+pip-*/
+pytest-*/
+pytest-cache-files-*/
 pytest-of-*/
+wheels/
+tmpw/
+*.log
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

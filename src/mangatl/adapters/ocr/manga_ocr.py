@@ -11,6 +11,7 @@ score; the role classifier still rejects empty results as ``texture``.
 
 from __future__ import annotations
 
+import inspect
 import os
 from collections.abc import Sequence
 from pathlib import Path
@@ -37,7 +38,25 @@ class MangaOcrAdapter:
                 "downloads weights on first use; set HF_ENDPOINT=https://hf-mirror.com"
             ) from exc
         self.model_name = model_name
-        self._model = MangaOcr(pretrained_model_name_or_path=model_name, device=device)
+        self._model = _build_model(MangaOcr, model_name, device)
+
+
+def _build_model(factory, model_name: str, device: str):
+    """Instantiate ``MangaOcr`` whatever its constructor accepts.
+
+    Released versions take ``(pretrained_model_name_or_path, force_cpu)``; some
+    builds expose ``device`` instead. Reading the signature avoids a hard failure
+    on either.
+    """
+    parameters = inspect.signature(factory.__init__).parameters
+    kwargs: dict[str, object] = {}
+    if "pretrained_model_name_or_path" in parameters:
+        kwargs["pretrained_model_name_or_path"] = model_name
+    if "force_cpu" in parameters:
+        kwargs["force_cpu"] = device.startswith("cpu")
+    elif "device" in parameters:
+        kwargs["device"] = device
+    return factory(**kwargs)
 
     def recognize(self, image_path: Path, blocks: Sequence[TextBlock]) -> list[TextBlock]:
         """Fill ``text`` for every block; vertical blocks are rotated first."""

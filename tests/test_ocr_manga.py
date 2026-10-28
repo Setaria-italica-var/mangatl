@@ -80,6 +80,27 @@ def test_out_of_bounds_block_is_skipped(tmp_path: Path, fake_module: FakeModel) 
     assert fake_module.calls == []
 
 
+def test_constructor_variants_are_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, object] = {}
+
+    class ForceCpuModel:
+        def __init__(self, pretrained_model_name_or_path=None, force_cpu=False):
+            seen["name"] = pretrained_model_name_or_path
+            seen["force_cpu"] = force_cpu
+
+        def __call__(self, image):
+            return "ok"
+
+    module = types.ModuleType("manga_ocr")
+    module.MangaOcr = ForceCpuModel
+    monkeypatch.setitem(sys.modules, "manga_ocr", module)
+
+    MangaOcrAdapter(device="cpu")
+
+    assert seen["force_cpu"] is True
+    assert seen["name"] == "kha-white/manga-ocr-base"
+
+
 def test_model_failure_keeps_the_page_alive(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
