@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
 import urllib.request
 from pathlib import Path
@@ -147,45 +146,34 @@ def fetch(
 def export_onnx(
     checkpoint: Path, destination: Path, imgsz: int = 640, config_dir: Path | None = None
 ) -> Path | None:
-    """Export a YOLO checkpoint with ultralytics; returns the ONNX path."""
+    """Export a YOLO checkpoint to ONNX in-process; returns the ONNX path."""
+    target = destination.parent / "bubble_detector.onnx"
+    config_dir = config_dir or Path("data/ultralytics")
+    config_dir.mkdir(parents=True, exist_ok=True)
+    # Ultralytics writes settings to %APPDATA%; point it inside the project, which
+    # also works where that directory is locked down. Must be set before import.
+    os.environ.setdefault("YOLO_CONFIG_DIR", str(config_dir.resolve()))
     try:
-        import ultralytics  # noqa: F401
+        from ultralytics import YOLO
     except ImportError:
         print(
             "ultralytics is not installed, skipping export.\n"
-            "  uv pip install ultralytics\n"
-            f"  python -c \"from ultralytics import YOLO; "
-            f"YOLO(r'{checkpoint}').export(format='onnx', imgsz={imgsz})\"",
+            "  uv pip install ultralytics && python -m mangatl fetch-models",
             file=sys.stderr,
         )
         return None
 
-    code = (
-        "import sys\n"
-        "from ultralytics import YOLO\n"
-        "model = YOLO(sys.argv[1])\n"
-        "print(model.export(format='onnx', imgsz=int(sys.argv[2]), opset=12, simplify=True))\n"
-    )
-    environment = dict(os.environ)
-    # Ultralytics writes settings to %APPDATA%; point it at the project instead,
-    # which also works on machines where that directory is locked down.
-    environment.setdefault("YOLO_CONFIG_DIR", str(config_dir or Path("data/ultralytics")))
-    result = subprocess.run(
-        [sys.executable, "-c", code, str(checkpoint), str(imgsz)],
-        capture_output=True,
-        text=True,
-        check=False,
-        env=environment,
-    )
-    if result.returncode != 0:
-        print(result.stderr[-2000:], file=sys.stderr)
-        return None
-
-    produced = sorted(checkpoint.parent.glob("*.onnx"))
+    model = YOLO(str(checkpoint))
+    produced = model.export(format="onnx", imgsz=imgsz, opset=12, simplify=True)
     if not produced:
-        print("export finished but no .onnx was produced", file=sys.stderr)
+        print("export finished but returned no path", file=sys.stderr)
         return None
-    target = destination.parent / "bubble_detector.onnx"
-    produced[0].replace(target)
+    produced_path = Path(produced)
+    if not produced_path.is_file():
+        produced_path = checkpoint.parent / "best.onnx"
+    if not produced_path.is_file():
+        print(f"export produced {produced} but the file is missing", file=sys.stderr)
+        return None
+    produced_path.replace(target)
     print(f"exported {target}")
     return target
