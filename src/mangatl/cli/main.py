@@ -48,6 +48,12 @@ def default_registries() -> tuple[DetectorRegistry, DetectorRegistry, DetectorRe
         pass
     else:
         ocrs.add("manga_ocr", MangaOcrAdapter)
+    try:
+        from mangatl.adapters.ocr.rapid import RapidOcrAdapter
+    except ImportError:  # numpy missing; the engine itself is imported lazily
+        pass
+    else:
+        ocrs.add("rapidocr", RapidOcrAdapter)
 
     inpainters: DetectorRegistry = Registry("inpainter")
     inpainters.add("copy", CopyInpainter)

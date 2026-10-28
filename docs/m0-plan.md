@@ -35,6 +35,7 @@ src/mangatl/
   adapters/imaging.py            Otsu/墨迹掩膜、行程并查集连通域、结构线判定（实线/虚线/嵌套/黑块）
   adapters/inpaint/masked.py     掩膜约束擦除：只抹字，保留气泡线；纯色块走中位色，其余走扩散
   adapters/ocr/manga_ocr.py      manga-ocr 适配器（日文，竖排先旋转 90°）
+  adapters/ocr/rapid.py          RapidOCR（PP-OCR/ONNX）适配器：真实置信度 + 英文；整页识别后按重叠匹配块
   domain/roles.py                块级语义判定：dialogue / sfx / texture（用 OCR 结果做证据）
   render/style.py                样式估计：前景/背景色、字号、笔画粗细、粗细体、衬线、斜体、对齐
   core/config.py         RunConfig（不可变）+ resolve()
@@ -51,6 +52,7 @@ tests/test_inpaint_masked.py  7 个用例：Otsu/墨迹、连通域计数、结�
 tests/test_roles.py           8 个用例：对话/拟声词/花纹/低置信/阈值可配
 tests/test_ocr_manga.py       4 个用例：裁剪、竖排旋转、越界跳过、单块失败不影响整页
 tests/test_style.py           7 个用例：粗细体、颜色、灰字、行数→字号、对齐、掩膜优先
+tests/test_ocr_rapid.py       6 个用例：新旧两代 API、低分过滤、越界忽略、竖排右→左、IoU
 src/mangatl/tools/demo.py     合成页生成器（`python -m mangatl demo`）
 docs/m0-plan.md        本文件
 ```

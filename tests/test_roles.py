@@ -24,7 +24,7 @@ def test_sentences_are_dialogue(text: str) -> None:
     assert decision.should_erase
 
 
-@pytest.mark.parametrize("text", ["ゴゴゴ", "ドン！", "!!", "ざわ…ざわ"])
+@pytest.mark.parametrize("text", ["ゴゴゴ", "ドン！", "ざわ…ざわ"])
 def test_onomatopoeia_is_sfx(text: str) -> None:
     decision = classify(text)
 
@@ -42,6 +42,7 @@ def test_empty_text_is_texture_and_kept() -> None:
 
 def test_pure_symbols_are_texture() -> None:
     decision = classify("—— ~~~ ***")
+    assert classify("!!").role is BlockRole.TEXTURE
 
     assert decision.role is BlockRole.TEXTURE
     assert decision.should_erase is False

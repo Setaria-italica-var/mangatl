@@ -159,6 +159,8 @@ def assign_roles(page: Page, config: RunConfig) -> None:
         )
         block.role = decision.role.value
         block.role_reasons = decision.reasons
+        if decision.role is BlockRole.DIALOGUE and confidence < 0.5:
+            block.needs_review = True
 
 
 def should_erase(block: TextBlock, config: RunConfig) -> bool:
