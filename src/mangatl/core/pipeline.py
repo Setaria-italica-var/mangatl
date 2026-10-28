@@ -117,6 +117,7 @@ class PipelineService:
                 page.blocks = self.ocr.recognize(image_path, page.blocks)
                 assign_roles(page, config)
             elif stage == "translate":
+                ensure_mask(page, image_path, self.detector)
                 annotate_bubbles(page, image_path)
                 assign_roles(page, config)
                 for block in page.blocks:
@@ -135,6 +136,7 @@ class PipelineService:
                         },
                     )
             elif stage == "render":
+                ensure_mask(page, image_path, self.detector)
                 annotate_bubbles(page, image_path)
                 assign_roles(page, config)
                 source = self.project.directory / config.output_dirname / page.name
@@ -147,8 +149,7 @@ class PipelineService:
                 # when the OCR stage was skipped on a resumed run.
                 if page.size is None:
                     page.size = _image_size(image_path)
-                if page.text_mask is None and hasattr(self.detector, "text_mask"):
-                    page.text_mask = self.detector.text_mask(image_path)
+                ensure_mask(page, image_path, self.detector)
                 annotate_bubbles(page, image_path)
                 assign_roles(page, config)
                 destination = self.project.directory / config.output_dirname / page.name
@@ -205,6 +206,44 @@ def mask_coverage(page: Page, block: TextBlock, threshold: float = 0.5) -> float
     return float((region > threshold).mean())
 
 
+def is_bubble(pixels, bbox: tuple[int, int, int, int], probability=None) -> bool:
+    """Whether a block sits on bubble paper.
+
+    Looking only at a ring fails when the box is tight: the ring lands on the
+    bubble outline. When the detector mask is available the test uses the
+    *interior* background instead — the pixels between glyphs, which are bubble
+    paper for real dialogue and artwork for a sound effect drawn over a panel.
+    """
+    import numpy as np
+
+    height, width = pixels.shape[:2]
+    x1, y1, x2, y2 = bbox
+    x1, y1 = max(0, min(x1, width)), max(0, min(y1, height))
+    x2, y2 = max(0, min(x2, width)), max(0, min(y2, height))
+    if x2 <= x1 or y2 <= y1:
+        return False
+
+    # Look at the block plus a margin. Bubble paper dominates that window, while a
+    # sound effect drawn over a panel or a costume is surrounded by darker, busier
+    # pixels. Counting bright pixels is robust to the outline and to screentone.
+    margin_x = max(6, int((x2 - x1) * 0.25))
+    margin_y = max(6, int((y2 - y1) * 0.25))
+    left, top = max(0, x1 - margin_x), max(0, y1 - margin_y)
+    right, bottom = min(width, x2 + margin_x), min(height, y2 + margin_y)
+    window = pixels[top:bottom, left:right, :3].astype(np.float32)
+    luminance = window.mean(axis=2)
+    bright_fraction = float((luminance >= 160).mean())
+    return bright_fraction >= 0.5
+
+
+def ensure_mask(page: Page, image_path: Path, detector) -> None:
+    """Compute the detector's text probability once per page, if possible."""
+    if page.text_mask is not None:
+        return
+    if hasattr(detector, "text_mask"):
+        page.text_mask = detector.text_mask(image_path)
+
+
 def annotate_bubbles(page: Page, image_path: Path) -> None:
     """Mark blocks whose surroundings are flat (i.e. inside a speech bubble).
 
@@ -215,15 +254,12 @@ def annotate_bubbles(page: Page, image_path: Path) -> None:
     try:
         import numpy as np
         from PIL import Image
-
-        from mangatl.adapters.inpaint.solid import SolidFillConfig, is_solid
     except ImportError:  # pragma: no cover - numpy/Pillow optional for stubs
         return
     with Image.open(image_path) as handle:
         pixels = np.array(handle.convert("RGB"))
-    config = SolidFillConfig()
     for block in page.blocks:
-        block.in_bubble = is_solid(pixels, block.bbox, config)
+        block.in_bubble = is_bubble(pixels, block.bbox, page.text_mask)
 
 
 def assign_roles(page: Page, config: RunConfig) -> None:
@@ -277,5 +313,9 @@ def should_erase(block: TextBlock, config: RunConfig) -> bool:
     if block.role == BlockRole.TEXTURE.value:
         return False
     if block.mask_coverage < 0.02:
+        return False
+    if not block.in_bubble and not config.erase_background:
+        # Text embedded in the artwork (sound effects, signage) is left alone
+        # unless the caller explicitly asks for background erasing.
         return False
     return not (block.role == BlockRole.SFX.value and config.sfx_policy != "erase")

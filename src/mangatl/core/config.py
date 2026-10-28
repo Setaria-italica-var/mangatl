@@ -30,6 +30,7 @@ class RunConfig:
     result_dirname: str = "result"
     force: bool = False
     sfx_policy: str = "erase"
+    erase_background: bool = False
     extra: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:

@@ -108,6 +108,11 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--source-lang", default="ja")
     run.add_argument("--target-lang", default="zh-CN")
     run.add_argument(
+        "--erase-background",
+        action="store_true",
+        help="also erase text that is not inside a bubble (off by default)",
+    )
+    run.add_argument(
         "--sfx",
         choices=("keep", "erase"),
         default="keep",
@@ -123,6 +128,9 @@ def _build_parser() -> argparse.ArgumentParser:
     check = sub.add_parser("translate-test", help="send one sentence to the configured LLM")
     check.add_argument("--text", default="おはよう")
     check.add_argument("--target-lang", default="Simplified Chinese")
+
+    inspect = sub.add_parser("inspect", help="print the stored block decisions for a project")
+    inspect.add_argument("directory", type=Path)
 
     probe = sub.add_parser("probe", help="print an ONNX model's inputs and outputs")
     probe.add_argument("model", type=Path, help="path to a .onnx file")
@@ -160,6 +168,29 @@ def _run_translate_test(text: str, target: str) -> int:
         print(f"error: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
     print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _run_inspect(directory: Path) -> int:
+    """Print every block's role and geometry so a skipped page can be explained."""
+    from mangatl.domain.project import Project
+
+    try:
+        project = Project.open(directory)
+    except FileNotFoundError:
+        print(f"error: {directory} has no project.json", file=sys.stderr)
+        return 2
+    print(f"{'page':10} {'id':>3} {'role':8} {'bubble':6} {'cov':>6} {'area':>6} {'size':>11} text")
+    for page in project:
+        for block in page.blocks:
+            width = block.bbox[2] - block.bbox[0]
+            height = block.bbox[3] - block.bbox[1]
+            print(
+                f"{page.name:10} {block.id:3} {block.role:8} "
+                f"{str(block.in_bubble):6} {block.mask_coverage:6.3f} "
+                f"{block.area_fraction:6.2f} {width:5}x{height:<5} "
+                f"{block.text[:22]!r}"
+            )
     return 0
 
 
@@ -202,6 +233,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_probe(args.model)
     if args.command == "translate-test":
         return _run_translate_test(args.text, args.target_lang)
+    if args.command == "inspect":
+        return _run_inspect(args.directory)
     if args.command != "run":  # pragma: no cover - argparse enforces the choices
         return 2
 
@@ -216,6 +249,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         tgt_lang=args.target_lang,
         force=args.force,
         sfx_policy=args.sfx,
+        erase_background=args.erase_background,
     )
 
     detectors, ocrs, inpainters, translators = default_registries()
