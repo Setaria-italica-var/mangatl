@@ -4,7 +4,7 @@ There is no module-level config object: callers own the instance, so tests and
 future batch runs can hold different configurations side by side.
 
 >>> RunConfig().stages
-('detect', 'ocr', 'erase')
+('detect', 'ocr', 'translate', 'erase')
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-STAGE_ORDER: tuple[str, ...] = ("detect", "ocr", "erase")
+STAGE_ORDER: tuple[str, ...] = ("detect", "ocr", "translate", "erase")
 
 
 @dataclass(frozen=True)
@@ -25,6 +25,7 @@ class RunConfig:
     detector: str = "grid"
     ocr: str = "echo"
     inpainter: str = "copy"
+    translator: str = "echo"
     output_dirname: str = "inpainted"
     force: bool = False
     sfx_policy: str = "erase"

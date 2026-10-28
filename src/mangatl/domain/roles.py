@@ -65,8 +65,8 @@ class RoleDecision:
 
     @property
     def should_translate_text(self) -> bool:
-        """Symbols carry no meaning; they are erased and copied verbatim."""
-        return self.role is BlockRole.DIALOGUE
+        """Dialogue and SFX are translated; symbols are copied verbatim."""
+        return self.role in (BlockRole.DIALOGUE, BlockRole.SFX)
 
 
 @dataclass(frozen=True)
@@ -78,6 +78,17 @@ class RoleConfig:
     repeat_ratio: float = 0.5
     low_confidence: float = 0.3
     min_mask_coverage: float = 0.01
+
+
+TRANSLATABLE_ROLES = (BlockRole.DIALOGUE, BlockRole.SFX)
+
+
+def is_translatable(role: str) -> bool:
+    """Whether a stored role string should be sent to the translator."""
+    try:
+        return BlockRole(role) in TRANSLATABLE_ROLES
+    except ValueError:
+        return False
 
 
 def _katakana_ratio(text: str) -> float:

@@ -47,7 +47,7 @@ def test_pipeline_runs_all_stages(project: Project) -> None:
 
     payload = json.loads((project.directory / "project.json").read_text(encoding="utf-8"))
     page = payload["pages"]["001.png"]
-    assert page["stage"] == {"detect": 1, "ocr": 1, "erase": 1}
+    assert page["stage"] == {"detect": 1, "ocr": 1, "translate": 1, "erase": 1}
     assert page["blocks"][0]["text"] == "001#0"
     assert (project.directory / "inpainted" / "001.png").is_file()
 
@@ -105,7 +105,7 @@ def test_missing_directory_raises(tmp_path: Path) -> None:
 
 def test_unknown_stage_rejected() -> None:
     with pytest.raises(ValueError):
-        RunConfig(stages=("detect", "translate"))
+        RunConfig(stages=("detect", "render"))
 
 
 def test_page_done_events(project: Project) -> None:

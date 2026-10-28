@@ -29,8 +29,8 @@ def test_onomatopoeia_is_sfx(text: str) -> None:
     decision = classify(text)
 
     assert decision.role is BlockRole.SFX
-    assert not decision.should_translate
-    assert decision.should_erase  # SFX is redrawn as artwork, not translated
+    assert decision.should_erase  # erased now, translated at render time
+    assert decision.should_translate_text
 
 
 def test_empty_text_is_texture_and_kept() -> None:

@@ -20,11 +20,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from mangatl.adapters.base import Detector, Inpainter, Ocr
+from mangatl.adapters.base import Detector, Inpainter, Ocr, Translator
+from mangatl.adapters.translators.echo import EchoTranslator
 from mangatl.core.config import RunConfig
 from mangatl.domain.block import TextBlock
 from mangatl.domain.project import Page, Project
-from mangatl.domain.roles import BlockRole, RoleConfig, classify
+from mangatl.domain.roles import BlockRole, RoleConfig, classify, is_translatable
 
 EVENT_STAGE_START = "stage-start"
 EVENT_STAGE_DONE = "stage-done"
@@ -64,12 +65,14 @@ class PipelineService:
         detector: Detector,
         ocr: Ocr,
         inpainter: Inpainter,
+        translator: Translator | None = None,
         on_event: EventFn | None = None,
     ) -> None:
         self.project = project
         self.detector = detector
         self.ocr = ocr
         self.inpainter = inpainter
+        self.translator = translator or EchoTranslator()
         self.on_event = on_event
 
     def run(self, config: RunConfig) -> RunSummary:
@@ -110,6 +113,23 @@ class PipelineService:
                     raise ValueError(f"{page.name}: OCR needs blocks from the detect stage")
                 page.blocks = self.ocr.recognize(image_path, page.blocks)
                 assign_roles(page, config)
+            elif stage == "translate":
+                assign_roles(page, config)
+                for block in page.blocks:
+                    if block.role == BlockRole.SYMBOL.value:
+                        # Symbols are language-neutral: keep them as they are.
+                        block.translation = block.text
+                translatable = [
+                    block for block in page.blocks if should_translate(block, config)
+                ]
+                if translatable:
+                    self.translator.translate(
+                        translatable,
+                        {
+                            "source_lang": config.src_lang,
+                            "target_lang": config.tgt_lang,
+                        },
+                    )
             elif stage == "erase":
                 # Roles are derived from the OCR text, so recompute them even
                 # when the OCR stage was skipped on a resumed run.
@@ -193,6 +213,19 @@ def assign_roles(page: Page, config: RunConfig) -> None:
         block.role_reasons = decision.reasons
         if decision.role is BlockRole.DIALOGUE and confidence < 0.5:
             block.needs_review = True
+
+
+def should_translate(block: TextBlock, config: RunConfig) -> bool:
+    """Whether this block should be sent to the translator.
+
+    Symbols are copied verbatim by the renderer, and SFX that are kept as
+    artwork must not be translated (there would be nothing to draw the result on).
+    """
+    if not block.text.strip():
+        return False
+    if not is_translatable(block.role):
+        return False
+    return not (block.role == BlockRole.SFX.value and config.sfx_policy != "erase")
 
 
 def should_erase(block: TextBlock, config: RunConfig) -> bool:

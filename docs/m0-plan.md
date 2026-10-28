@@ -38,6 +38,8 @@ src/mangatl/
   adapters/ocr/rapid.py          RapidOCR（PP-OCR/ONNX）适配器：真实置信度 + 英文；整页识别后按重叠匹配块
   domain/roles.py                块级语义判定：dialogue / sfx / texture（用 OCR 结果做证据）
   render/style.py                样式估计：前景/背景色、字号、笔画粗细、粗细体、衬线、斜体、对齐
+  adapters/translators/echo.py   透传翻译器（无 Key 也能跑通流程）
+  adapters/translators/openai_compat.py  OpenAI 兼容 LLM：逐块 JSON 契约、缺块重试、失败回退原文
   core/config.py         RunConfig（不可变）+ resolve()
   core/pipeline.py       PipelineService / Event / RunSummary
   cli/main.py            argparse 入口（缺依赖的适配器自动不注册）
@@ -53,6 +55,8 @@ tests/test_roles.py           8 个用例：对话/拟声词/花纹/低置信/�
 tests/test_ocr_manga.py       4 个用例：裁剪、竖排旋转、越界跳过、单块失败不影响整页
 tests/test_style.py           7 个用例：粗细体、颜色、灰字、行数→字号、对齐、掩膜优先
 tests/test_ocr_rapid.py       6 个用例：新旧两代 API、低分过滤、越界忽略、竖排右→左、IoU
+tests/test_translator_openai.py 5 个用例：正常、缺块重试、坏 JSON 回退、非法 id 拒绝、空块跳过
+tests/test_erase_policy.py    6 个用例：角色/覆盖率/超大框的可擦判定
 src/mangatl/tools/demo.py     合成页生成器（`python -m mangatl demo`）
 docs/m0-plan.md        本文件
 ```

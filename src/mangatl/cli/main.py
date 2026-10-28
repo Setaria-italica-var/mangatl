@@ -16,8 +16,9 @@ from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
 
-from mangatl.adapters.base import Inpainter, Ocr, Registry
+from mangatl.adapters.base import Inpainter, Ocr, Registry, Translator
 from mangatl.adapters.stubs import CopyInpainter, EchoOcr, GridDetector
+from mangatl.adapters.translators.echo import EchoTranslator
 from mangatl.core.config import STAGE_ORDER, RunConfig
 from mangatl.core.pipeline import EVENT_PAGE_DONE, EVENT_PAGE_FAILED, Event, PipelineService
 from mangatl.domain.project import Project
@@ -25,7 +26,9 @@ from mangatl.domain.project import Project
 DetectorRegistry = Registry[type]
 
 
-def default_registries() -> tuple[DetectorRegistry, DetectorRegistry, DetectorRegistry]:
+def default_registries() -> tuple[
+    DetectorRegistry, DetectorRegistry, DetectorRegistry, DetectorRegistry
+]:
     """Return registries preloaded with every available adapter.
 
     Adapters that need optional dependencies are registered only when those
@@ -69,7 +72,13 @@ def default_registries() -> tuple[DetectorRegistry, DetectorRegistry, DetectorRe
         inpainters.add("diffusion", DiffusionInpainter)
         inpainters.add("auto", AutoInpainter)
         inpainters.add("masked", MaskedInpainter)
-    return detectors, ocrs, inpainters
+
+    translators: DetectorRegistry = Registry("translator")
+    translators.add("echo", EchoTranslator)
+    from mangatl.adapters.translators.openai_compat import OpenAiTranslator
+
+    translators.add("openai", OpenAiTranslator)
+    return detectors, ocrs, inpainters, translators
 
 
 def _print_event(event: Event) -> None:
@@ -93,6 +102,9 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--detector", default="grid")
     run.add_argument("--ocr", default="echo")
     run.add_argument("--inpainter", default="copy")
+    run.add_argument("--translator", default="echo")
+    run.add_argument("--source-lang", default="ja")
+    run.add_argument("--target-lang", default="zh-CN")
     run.add_argument(
         "--sfx",
         choices=("keep", "erase"),
@@ -157,11 +169,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         detector=args.detector,
         ocr=args.ocr,
         inpainter=args.inpainter,
+        translator=args.translator,
+        src_lang=args.source_lang,
+        tgt_lang=args.target_lang,
         force=args.force,
         sfx_policy=args.sfx,
     )
 
-    detectors, ocrs, inpainters = default_registries()
+    detectors, ocrs, inpainters, translators = default_registries()
     enabled = config.enabled
     try:
         # Only build the adapters whose stage is selected: constructing an OCR
@@ -177,6 +192,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         inpainter: Inpainter = (
             inpainters.get(config.inpainter)() if "erase" in enabled else CopyInpainter()
         )
+        translator: Translator = (
+            translators.get(config.translator)() if "translate" in enabled else EchoTranslator()
+        )
     except (KeyError, ImportError, FileNotFoundError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -191,7 +209,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 2
     project.scan()
-    service = PipelineService(project, detector, ocr, inpainter, on_event=_print_event)
+    service = PipelineService(
+        project, detector, ocr, inpainter, translator=translator, on_event=_print_event
+    )
     summary = service.run(config)
     print(json.dumps(asdict(summary), ensure_ascii=False))
     return 0 if summary.failed == 0 else 1

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Generic, Protocol, TypeVar, runtime_checkable
+from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, runtime_checkable
 
 from mangatl.domain.block import TextBlock
 
@@ -65,6 +65,20 @@ class Inpainter(Protocol):
         ``mask`` is the detector's per-pixel text probability when available;
         adapters that ignore it must still accept the keyword.
         """
+
+
+@runtime_checkable
+class Translator(Protocol):
+    """Turns block text into the target language."""
+
+    name: str
+
+    def translate(
+        self,
+        blocks: Sequence[TextBlock],
+        context: dict[str, Any] | None = None,
+    ) -> list[TextBlock]:
+        """Return blocks with ``translation`` filled in."""
 
 
 class Registry(Generic[T]):
