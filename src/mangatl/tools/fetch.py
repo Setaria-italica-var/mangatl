@@ -21,7 +21,13 @@ DEFAULT_ENDPOINT = "https://hf-mirror.com"
 OFFICIAL_ENDPOINT = "https://huggingface.co"
 USER_AGENT = "mangatl/0.1 (+https://github.com/mangatl/mangatl)"
 DIRECT_CANDIDATES = ("best.pt", "model.pt", "weights.pt", "model.onnx", "best.onnx")
-DEFAULT_REPO = "ogkalu/comic-speech-bubble-detector"
+DEFAULT_REPO = "ogkalu/comic-speech-bubble-detector-yolov8m"
+KNOWN_REPOS = (
+    "ogkalu/comic-speech-bubble-detector-yolov8m",
+    "ogkalu/comic-text-and-bubble-detector",
+    "kitsumed/yolov8m_seg-speech-bubble",
+    "mayocream/speech-bubble-segmentation",
+)
 CHECKPOINT_SUFFIXES = (".pt", ".pth", ".bin")
 SKIP_PATTERNS = (".gitattributes", "README.md", "LICENSE", "LICENSE.md", ".md")
 
@@ -50,7 +56,11 @@ def model_card(repo: str, base: str | None = None) -> dict:
                 return json.loads(response.read().decode("utf-8"))
         except Exception as exc:  # try the next endpoint
             last_error = exc
-    raise RuntimeError(f"cannot read model card for {repo}: {last_error}") from last_error
+    raise RuntimeError(
+        f"cannot read model card for {repo}: {last_error}\n"
+        "known repositories: " + ", ".join(KNOWN_REPOS) + "\n"
+        "pass --repo <name> to try another one"
+    ) from last_error
 
 
 def direct_weight(repo: str, base: str | None = None) -> list[tuple[str, str]]:

@@ -162,7 +162,7 @@ def _build_parser() -> argparse.ArgumentParser:
     check.add_argument("--target-lang", default="Simplified Chinese")
 
     fetch = sub.add_parser("fetch-models", help="download model weights from the HF hub")
-    fetch.add_argument("--repo", default="ogkalu/comic-speech-bubble-detector")
+    fetch.add_argument("--repo", default="ogkalu/comic-speech-bubble-detector-yolov8m")
     fetch.add_argument("--dest", type=Path, default=Path("data/models/bubble-src"))
     fetch.add_argument("--endpoint", default="")
     fetch.add_argument("--no-export", action="store_true")
@@ -241,7 +241,8 @@ def _run_fetch_models(args) -> int:
     except Exception as exc:  # noqa: BLE001 - network failures are user-facing
         print(f"error: {type(exc).__name__}: {exc}", file=sys.stderr)
         print(
-            "hint: check HF_ENDPOINT (mirror) and that the repo name is correct",
+            "hint: check HF_ENDPOINT (mirror); try --repo with one of the known ones "
+            "listed above",
             file=sys.stderr,
         )
         return 1

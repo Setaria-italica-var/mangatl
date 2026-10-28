@@ -8,15 +8,16 @@
 
 | 来源 | 用途 | 备注 |
 |---|---|---|
-| `ogkalu/comic-speech-bubble-detector` | YOLOv8 气泡检测（1 类） | 最轻，~6 MB，够用 |
+| `ogkalu/comic-speech-bubble-detector-yolov8m` | YOLOv8m 气泡检测（1 类） | 默认；文件名通常是 `best.pt` |
 | `ogkalu/comic-text-and-bubble-detector` | YOLOv8m，2 类：text / bubble | 同时给文字框，可代替 CTD 做交叉验证 |
-| `kitsumed/yolov8m_seg-speech-bubble` | YOLOv8 分割，输出气泡多边形 | 需要多边形内缩排版时用 |
+| `kitsumed/yolov8m_seg-speech-bubble` | YOLOv8 分割，输出气泡多边形 | 分割头解码尚未实现 |
+| `mayocream/speech-bubble-segmentation` | 分割备选 | 同上 |
 | BallonsTranslator | 工程参考：CTD 检测 + 掩膜内缩 + LaMa 修复 | 我们的 `masked` 擦除思路与之同源 |
 | `Carve/LaMa-ONNX`、Big-LaMa | 掩膜修复（inpainting） | 比扩散填充干净，专治“马赛克” |
 | manga-ocr / RapidOCR | 文字识别 | 已在用 |
 
-许可证：上述模型多为 **Apache-2.0 或 MIT**（下载前在模型卡确认）；本工程 GPL-3.0
-可以依赖，但不要把模型权重提交进仓库。
+许可证：YOLOv8 系权重由 Ultralytics 训练，**AGPL-3.0**，与本工程 GPL-3.0 兼容但义务更严；
+权重不随仓库分发，由用户自行下载，`models/manifest.json` 记录来源与许可。
 
 ## 2. 决策流程
 
