@@ -26,6 +26,7 @@ from mangatl.core.config import RunConfig
 from mangatl.domain.block import TextBlock
 from mangatl.domain.project import Page, Project
 from mangatl.domain.roles import BlockRole, RoleConfig, classify, is_translatable
+from mangatl.render.renderer import PageRenderer
 
 EVENT_STAGE_START = "stage-start"
 EVENT_STAGE_DONE = "stage-done"
@@ -66,6 +67,7 @@ class PipelineService:
         ocr: Ocr,
         inpainter: Inpainter,
         translator: Translator | None = None,
+        renderer: PageRenderer | None = None,
         on_event: EventFn | None = None,
     ) -> None:
         self.project = project
@@ -73,6 +75,7 @@ class PipelineService:
         self.ocr = ocr
         self.inpainter = inpainter
         self.translator = translator or EchoTranslator()
+        self.renderer = renderer or PageRenderer()
         self.on_event = on_event
 
     def run(self, config: RunConfig) -> RunSummary:
@@ -130,6 +133,13 @@ class PipelineService:
                             "target_lang": config.tgt_lang,
                         },
                     )
+            elif stage == "render":
+                assign_roles(page, config)
+                source = self.project.directory / config.output_dirname / page.name
+                if not source.is_file():
+                    source = image_path  # no erase output yet: letter the original
+                destination = self.project.directory / config.result_dirname / page.name
+                self.renderer.render(source, page.blocks, destination)
             elif stage == "erase":
                 # Roles are derived from the OCR text, so recompute them even
                 # when the OCR stage was skipped on a resumed run.

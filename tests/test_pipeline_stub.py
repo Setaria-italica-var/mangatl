@@ -47,7 +47,13 @@ def test_pipeline_runs_all_stages(project: Project) -> None:
 
     payload = json.loads((project.directory / "project.json").read_text(encoding="utf-8"))
     page = payload["pages"]["001.png"]
-    assert page["stage"] == {"detect": 1, "ocr": 1, "translate": 1, "erase": 1}
+    assert page["stage"] == {
+        "detect": 1,
+        "ocr": 1,
+        "translate": 1,
+        "erase": 1,
+        "render": 1,
+    }
     assert page["blocks"][0]["text"] == "001#0"
     assert (project.directory / "inpainted" / "001.png").is_file()
 

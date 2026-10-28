@@ -38,6 +38,10 @@ src/mangatl/
   adapters/ocr/rapid.py          RapidOCR（PP-OCR/ONNX）适配器：真实置信度 + 英文；整页识别后按重叠匹配块
   domain/roles.py                块级语义判定：dialogue / sfx / texture（用 OCR 结果做证据）
   render/style.py                样式估计：前景/背景色、字号、笔画粗细、粗细体、衬线、斜体、对齐
+  render/linebreak.py            断行：中文禁则、西文整词、横排/竖排
+  render/layout.py               字号自适应（二分收缩，放不下才标 needs_review）
+  render/fonts.py                字体解析：data/fonts 优先，其次系统 CJK 字体
+  render/renderer.py             唯一写像素的地方：横排/竖排绘制、描边、竖排旋转字形
   adapters/translators/echo.py   透传翻译器（无 Key 也能跑通流程）
   adapters/translators/openai_compat.py  OpenAI 兼容 LLM：逐块 JSON 契约、缺块重试、失败回退原文
   core/config.py         RunConfig（不可变）+ resolve()
@@ -57,6 +61,8 @@ tests/test_style.py           7 个用例：粗细体、颜色、灰字、行数
 tests/test_ocr_rapid.py       6 个用例：新旧两代 API、低分过滤、越界忽略、竖排右→左、IoU
 tests/test_translator_openai.py 5 个用例：正常、缺块重试、坏 JSON 回退、非法 id 拒绝、空块跳过
 tests/test_erase_policy.py    6 个用例：角色/覆盖率/超大框的可擦判定
+tests/test_linebreak.py       9 个用例：断行、禁则、整词、竖排列、字号收缩
+tests/test_renderer.py        4 个用例：绘制、竖排、texture 跳过、长文缩字
 src/mangatl/tools/demo.py     合成页生成器（`python -m mangatl demo`）
 docs/m0-plan.md        本文件
 ```
