@@ -39,6 +39,7 @@ class Page:
     # Transient per-run data: the detector's text probability, handed to the
     # inpainter without being persisted (it is large and derived).
     text_mask: Any = field(default=None, repr=False, compare=False)
+    size: tuple[int, int] | None = None
 
     def is_done(self, stage: str) -> bool:
         """Return whether ``stage`` has already been completed for this page."""
@@ -50,20 +51,25 @@ class Page:
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-ready mapping."""
-        return {
+        payload: dict[str, Any] = {
             "stage": dict(self.stage),
             "blocks": [block.to_dict() for block in self.blocks],
         }
+        if self.size is not None:
+            payload["size"] = list(self.size)
+        return payload
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> Page:
         """Rebuild a page from :meth:`to_dict` output."""
         stage = dict.fromkeys(STAGES, 0)
         stage.update({key: int(value) for key, value in data.get("stage", {}).items()})
+        size = data.get("size")
         return cls(
             name=name,
             blocks=[TextBlock.from_dict(item) for item in data.get("blocks", [])],
             stage=stage,
+            size=(int(size[0]), int(size[1])) if size else None,
         )
 
 

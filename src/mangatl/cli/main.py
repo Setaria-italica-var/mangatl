@@ -166,7 +166,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         # Only build the adapters whose stage is selected: constructing an OCR
         # engine can load hundreds of megabytes for nothing on an erase-only run.
-        detector = detectors.get(config.detector)() if "detect" in enabled else GridDetector()
+        detector_class = detectors.get(config.detector)
+        # The erase stage reuses the detector's text mask, so a real detector is
+        # still worth building when only erasing.
+        needs_mask = "detect" in enabled or (
+            "erase" in enabled and hasattr(detector_class, "text_mask")
+        )
+        detector = detector_class() if needs_mask else GridDetector()
         ocr: Ocr = ocrs.get(config.ocr)() if "ocr" in enabled else EchoOcr()
         inpainter: Inpainter = (
             inpainters.get(config.inpainter)() if "erase" in enabled else CopyInpainter()

@@ -113,6 +113,10 @@ class PipelineService:
             elif stage == "erase":
                 # Roles are derived from the OCR text, so recompute them even
                 # when the OCR stage was skipped on a resumed run.
+                if page.size is None:
+                    page.size = _image_size(image_path)
+                if page.text_mask is None and hasattr(self.detector, "text_mask"):
+                    page.text_mask = self.detector.text_mask(image_path)
                 assign_roles(page, config)
                 destination = self.project.directory / config.output_dirname / page.name
                 erasable = [block for block in page.blocks if should_erase(block, config)]
@@ -132,6 +136,25 @@ class PipelineService:
 def output_path(project: Project, config: RunConfig, page_name: str) -> Path:
     """Where the erased page for ``page_name`` is written."""
     return project.directory / config.output_dirname / page_name
+
+
+def _image_size(path: Path) -> tuple[int, int] | None:
+    """Read a page's pixel size without importing an image stack in core."""
+    try:
+        from PIL import Image
+    except ImportError:  # pragma: no cover - Pillow is a render dependency
+        return None
+    with Image.open(path) as handle:
+        return handle.size
+
+
+def block_area_fraction(page: Page, block: TextBlock) -> float:
+    """Block box area as a fraction of the page (0.0 when the size is unknown)."""
+    if page.size is None:
+        return 0.0
+    width, height = page.size
+    x1, y1, x2, y2 = block.bbox
+    return max(0, x2 - x1) * max(0, y2 - y1) / max(1, width * height)
 
 
 def mask_coverage(page: Page, block: TextBlock, threshold: float = 0.5) -> float:
@@ -154,12 +177,18 @@ def assign_roles(page: Page, config: RunConfig) -> None:
     settings = RoleConfig()
     for block in page.blocks:
         confidence = block.confidence if block.confidence > 0 else 0.5
+        coverage = mask_coverage(page, block)
         decision = classify(
             block.text,
             confidence=confidence,
-            mask_coverage=mask_coverage(page, block),
+            mask_coverage=coverage,
             config=settings,
         )
+        block.mask_coverage = coverage
+        block.area_fraction = block_area_fraction(page, block)
+        # A box that covers a large part of the page but contains little text is
+        # a detector artefact: erase its glyph pixels, never the whole box.
+        block.bbox_erase = not (block.area_fraction > 0.35 and coverage < 0.1)
         block.role = decision.role.value
         block.role_reasons = decision.reasons
         if decision.role is BlockRole.DIALOGUE and confidence < 0.5:
@@ -167,7 +196,14 @@ def assign_roles(page: Page, config: RunConfig) -> None:
 
 
 def should_erase(block: TextBlock, config: RunConfig) -> bool:
-    """Whether the inpainter may touch this block."""
+    """Whether the inpainter may touch this block.
+
+    ``texture`` never qualifies, and a block whose box is almost empty of text
+    pixels is treated as a false positive even when OCR returned something —
+    that is what protects a whole-page misdetection from being wiped.
+    """
     if block.role == BlockRole.TEXTURE.value:
+        return False
+    if block.mask_coverage < 0.02:
         return False
     return not (block.role == BlockRole.SFX.value and config.sfx_policy != "erase")

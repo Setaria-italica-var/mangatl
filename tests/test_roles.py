@@ -40,9 +40,15 @@ def test_empty_text_is_texture_and_kept() -> None:
     assert not decision.should_erase
 
 
-def test_pure_symbols_are_texture() -> None:
+def test_pure_symbols_are_symbols_not_texture() -> None:
     decision = classify("—— ~~~ ***")
-    assert classify("!!").role is BlockRole.TEXTURE
+
+    assert decision.role is BlockRole.SYMBOL
+    assert decision.should_erase  # the glyphs still have to leave the page
+    assert not decision.should_translate_text  # ...but they are not translated
+
+    assert classify("!!").role is BlockRole.SYMBOL
+    assert classify("・・・").role is BlockRole.SYMBOL
 
     assert decision.role is BlockRole.TEXTURE
     assert decision.should_erase is False

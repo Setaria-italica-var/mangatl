@@ -27,6 +27,9 @@ class TextBlock:
     needs_review: bool = False
     role: str = "dialogue"
     role_reasons: tuple[str, ...] = ()
+    mask_coverage: float = 1.0
+    area_fraction: float = 0.0
+    bbox_erase: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-ready mapping."""
@@ -41,6 +44,9 @@ class TextBlock:
             "needs_review": self.needs_review,
             "role": self.role,
             "role_reasons": list(self.role_reasons),
+            "mask_coverage": round(self.mask_coverage, 4),
+            "area_fraction": round(self.area_fraction, 4),
+            "bbox_erase": self.bbox_erase,
         }
 
     @classmethod
@@ -62,4 +68,7 @@ class TextBlock:
             needs_review=bool(data.get("needs_review", False)),
             role=str(data.get("role", "dialogue")),
             role_reasons=tuple(data.get("role_reasons", ())),
+            mask_coverage=float(data.get("mask_coverage", 1.0)),
+            area_fraction=float(data.get("area_fraction", 0.0)),
+            bbox_erase=bool(data.get("bbox_erase", True)),
         )

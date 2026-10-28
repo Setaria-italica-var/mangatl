@@ -76,21 +76,24 @@ def erased_mask(
     if the detector's mask covers them.
     """
     gray = np.asarray(Image.fromarray(pixels[..., :3]).convert("L"))
-    block_area = np.zeros(gray.shape, dtype=bool)
+    allowed = np.zeros(gray.shape, dtype=bool)
+    bbox_area = np.zeros(gray.shape, dtype=bool)
     height, width = gray.shape
     for block in blocks:
         x1, y1, x2, y2 = clip_bbox(block.bbox, width, height)
-        block_area[y1:y2, x1:x2] = True
-    if not block_area.any():
-        return block_area
+        allowed[y1:y2, x1:x2] = True
+        if block.bbox_erase:
+            bbox_area[y1:y2, x1:x2] = True
+    if not allowed.any():
+        return allowed
 
-    text = (probability > config.text_threshold) & block_area
+    text = (probability > config.text_threshold) & allowed
     ink = ink_mask(gray)
     labels, stats = label_components(ink)
-    structure = structure_mask(labels, stats, text | block_area, block_area)
+    structure = structure_mask(labels, stats, text | bbox_area, bbox_area)
     if config.structure_dilate:
         structure = dilate(structure, config.structure_dilate)
-    return dilate((text | block_area) & ~structure, config.grow)
+    return dilate((text | bbox_area) & ~structure, config.grow)
 
 
 class MaskedInpainter:

@@ -27,7 +27,7 @@ class RunConfig:
     inpainter: str = "copy"
     output_dirname: str = "inpainted"
     force: bool = False
-    sfx_policy: str = "keep"
+    sfx_policy: str = "erase"
     extra: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:

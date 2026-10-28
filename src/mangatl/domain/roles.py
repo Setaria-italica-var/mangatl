@@ -43,6 +43,7 @@ class BlockRole(StrEnum):
 
     DIALOGUE = "dialogue"
     SFX = "sfx"
+    SYMBOL = "symbol"
     TEXTURE = "texture"
 
 
@@ -59,8 +60,13 @@ class RoleDecision:
 
     @property
     def should_erase(self) -> bool:
-        """Text and SFX are erased; decoration is left alone."""
+        """Everything that is text is erased; only decoration is left alone."""
         return self.role is not BlockRole.TEXTURE
+
+    @property
+    def should_translate_text(self) -> bool:
+        """Symbols carry no meaning; they are erased and copied verbatim."""
+        return self.role is BlockRole.DIALOGUE
 
 
 @dataclass(frozen=True)
@@ -119,10 +125,12 @@ def classify(
     # before judging "is there text here at all".
     content = PUNCTUATION.sub("", stripped)
     if not content:
-        return RoleDecision(BlockRole.TEXTURE, ("punctuation-only",))
+        # Punctuation still has to be removed from the page, but it is not
+        # translated; keep it in its original form.
+        return RoleDecision(BlockRole.SYMBOL, ("punctuation-only",))
 
     if not (KANA_OR_KANJI.search(content) or LATIN_OR_DIGIT.search(content)):
-        return RoleDecision(BlockRole.TEXTURE, ("no-letters",))
+        return RoleDecision(BlockRole.SYMBOL, ("no-letters",))
 
     if confidence < settings.low_confidence and mask_coverage < settings.min_mask_coverage:
         return RoleDecision(BlockRole.TEXTURE, ("weak-evidence",))
