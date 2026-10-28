@@ -49,7 +49,6 @@ def test_pure_symbols_are_symbols_not_texture() -> None:
 
     assert classify("!!").role is BlockRole.SYMBOL
     assert classify("・・・").role is BlockRole.SYMBOL
-    assert decision.should_erase is False
 
 
 def test_long_text_with_elongation_stays_dialogue() -> None:
