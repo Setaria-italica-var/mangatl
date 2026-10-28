@@ -132,6 +132,8 @@ def fetch(
             continue
         print(f"download {name} -> {target}")
         download(url, target)
+        if target.stat().st_size < 1024:
+            raise RuntimeError(f"{target} is suspiciously small ({target.stat().st_size} B)")
 
     checkpoint = next(
         (destination / name for name, _ in files if name.endswith(CHECKPOINT_SUFFIXES)),
@@ -139,10 +141,12 @@ def fetch(
     )
     if not export or checkpoint is None:
         return None
-    return export_onnx(checkpoint, destination, imgsz)
+    return export_onnx(checkpoint, destination, imgsz, Path("data/ultralytics"))
 
 
-def export_onnx(checkpoint: Path, destination: Path, imgsz: int = 640) -> Path | None:
+def export_onnx(
+    checkpoint: Path, destination: Path, imgsz: int = 640, config_dir: Path | None = None
+) -> Path | None:
     """Export a YOLO checkpoint with ultralytics; returns the ONNX path."""
     try:
         import ultralytics  # noqa: F401
@@ -162,11 +166,16 @@ def export_onnx(checkpoint: Path, destination: Path, imgsz: int = 640) -> Path |
         "model = YOLO(sys.argv[1])\n"
         "print(model.export(format='onnx', imgsz=int(sys.argv[2]), opset=12, simplify=True))\n"
     )
+    environment = dict(os.environ)
+    # Ultralytics writes settings to %APPDATA%; point it at the project instead,
+    # which also works on machines where that directory is locked down.
+    environment.setdefault("YOLO_CONFIG_DIR", str(config_dir or Path("data/ultralytics")))
     result = subprocess.run(
         [sys.executable, "-c", code, str(checkpoint), str(imgsz)],
         capture_output=True,
         text=True,
         check=False,
+        env=environment,
     )
     if result.returncode != 0:
         print(result.stderr[-2000:], file=sys.stderr)

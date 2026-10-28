@@ -167,6 +167,7 @@ def _build_parser() -> argparse.ArgumentParser:
     fetch.add_argument("--endpoint", default="")
     fetch.add_argument("--no-export", action="store_true")
     fetch.add_argument("--imgsz", type=int, default=640)
+    fetch.add_argument("--list", action="store_true", help="only list the repository files")
 
     inspect = sub.add_parser("inspect", help="print the stored block decisions for a project")
     inspect.add_argument("directory", type=Path)
@@ -230,6 +231,17 @@ def _run_fetch_models(args) -> int:
     from mangatl.tools.fetch import fetch
 
     base = args.endpoint or None
+    if args.list:
+        from mangatl.tools.fetch import model_card, weight_files
+
+        try:
+            info = model_card(args.repo, base)
+        except Exception as exc:  # noqa: BLE001 - network failures are user-facing
+            print(f"error: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
+        for name, url in weight_files(info, base, args.repo):
+            print(f"{name}\t{url}")
+        return 0
     try:
         exported = fetch(
             repo=args.repo,
