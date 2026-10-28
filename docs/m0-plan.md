@@ -31,6 +31,7 @@ src/mangatl/
   adapters/inpaint/solid.py   纯色气泡快路径（需 extra `vision`：numpy + Pillow）
   adapters/inpaint/diffusion.py  金字塔 + 扩散修复（无权重，CPU 可用）
   adapters/inpaint/auto.py       复合抹字：纯色优先，其余走扩散
+  adapters/detectors/ctd.py      CTD 检测（ONNX，无 torch/cv2）：掩膜 → 连通域 → 行合并 → 阅读顺序
   core/config.py         RunConfig（不可变）+ resolve()
   core/pipeline.py       PipelineService / Event / RunSummary
   cli/main.py            argparse 入口（缺依赖的适配器自动不注册）
@@ -40,6 +41,7 @@ tests/test_inpaint_solid.py   7 个用例：纯色判定、细描边容忍、梯
 tests/test_inpaint_diffusion.py 7 个用例：掩膜、纯色、梯度、大洞收敛、alpha、auto 两分支
 tests/test_encoding.py        全部文本文件：UTF-8 与乱码守卫
 tests/test_demo.py            3 个用例：页数/尺寸、确定性、变体差异
+tests/test_ctd_detector.py    7 个用例：连通域、小噪点过滤、膨胀、行合并、letterbox、模型路径覆盖
 src/mangatl/tools/demo.py     合成页生成器（`python -m mangatl demo`）
 docs/m0-plan.md        本文件
 ```
@@ -101,7 +103,7 @@ python -m ruff check .
 
 1. **Inpainter 无权重方案（已完成）**：`solid`（纯色环判定 + 中位色）与 `diffusion`（金字塔 + 拉普拉斯），`auto` 把两者串起来；合成图测试覆盖。
 2. **Inpainter → LaMa**：torch 已装（CPU 版），还缺权重与模型代码；接上后 `auto` 的第三级分支。
-3. **Detector → CTD**：torch + 模型权重，产出 bbox / lines / mask。
+3. **Detector → CTD（已完成，ONNX）**：`adapters/detectors/ctd.py`；权重 `data/models/comictextdetector.pt.onnx`。
 4. **OCR → manga-ocr（日）/ PP-OCR（英）**：onnxruntime 或 torch。
 
 模型权重（约 1.2 GB）优先走 `hf-mirror.com`；下载清单写进 `data/models/manifest.json`（见
