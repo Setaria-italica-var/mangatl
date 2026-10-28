@@ -162,10 +162,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
 
     detectors, ocrs, inpainters = default_registries()
+    enabled = config.enabled
     try:
-        detector = detectors.get(config.detector)()
-        ocr: Ocr = ocrs.get(config.ocr)()
-        inpainter: Inpainter = inpainters.get(config.inpainter)()
+        # Only build the adapters whose stage is selected: constructing an OCR
+        # engine can load hundreds of megabytes for nothing on an erase-only run.
+        detector = detectors.get(config.detector)() if "detect" in enabled else GridDetector()
+        ocr: Ocr = ocrs.get(config.ocr)() if "ocr" in enabled else EchoOcr()
+        inpainter: Inpainter = (
+            inpainters.get(config.inpainter)() if "erase" in enabled else CopyInpainter()
+        )
     except (KeyError, ImportError, FileNotFoundError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

@@ -111,6 +111,9 @@ class PipelineService:
                 page.blocks = self.ocr.recognize(image_path, page.blocks)
                 assign_roles(page, config)
             elif stage == "erase":
+                # Roles are derived from the OCR text, so recompute them even
+                # when the OCR stage was skipped on a resumed run.
+                assign_roles(page, config)
                 destination = self.project.directory / config.output_dirname / page.name
                 erasable = [block for block in page.blocks if should_erase(block, config)]
                 self.inpainter.erase(

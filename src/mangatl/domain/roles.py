@@ -34,6 +34,8 @@ KANA_OR_KANJI = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]")
 LATIN_OR_DIGIT = re.compile(r"[0-9A-Za-z]")
 SENTENCE_PUNCT = re.compile(r"[。．、，,.!！?？…‥]")
 ELONGATION = "ー〜~"
+PUNCTUATION = re.compile(r"[\s\u3000・･ー〜～~…‥．。、，,.!！?？「」『』（）()\[\]【】]")
+
 
 
 class BlockRole(StrEnum):
@@ -113,16 +115,22 @@ def classify(
             return RoleDecision(BlockRole.TEXTURE, ("empty-text", "weak-evidence"))
         return RoleDecision(BlockRole.TEXTURE, ("empty-text",))
 
-    if not (KANA_OR_KANJI.search(stripped) or LATIN_OR_DIGIT.search(stripped)):
+    # Punctuation and the katakana middle dot carry no reading; strip them
+    # before judging "is there text here at all".
+    content = PUNCTUATION.sub("", stripped)
+    if not content:
+        return RoleDecision(BlockRole.TEXTURE, ("punctuation-only",))
+
+    if not (KANA_OR_KANJI.search(content) or LATIN_OR_DIGIT.search(content)):
         return RoleDecision(BlockRole.TEXTURE, ("no-letters",))
 
     if confidence < settings.low_confidence and mask_coverage < settings.min_mask_coverage:
         return RoleDecision(BlockRole.TEXTURE, ("weak-evidence",))
 
-    short = len(stripped) <= settings.max_sfx_length
-    katakana = _katakana_ratio(stripped) >= settings.katakana_ratio
-    repeated = _repeat_ratio(stripped) >= settings.repeat_ratio
-    repeated_motif = _repeated_motif(stripped, max_len=settings.max_sfx_length)
+    short = len(content) <= settings.max_sfx_length
+    katakana = _katakana_ratio(content) >= settings.katakana_ratio
+    repeated = _repeat_ratio(content) >= settings.repeat_ratio
+    repeated_motif = _repeated_motif(content, max_len=settings.max_sfx_length)
     elongated = sum(stripped.count(char) for char in ELONGATION) >= 2
     no_sentence_punct = SENTENCE_PUNCT.search(stripped) is None
 

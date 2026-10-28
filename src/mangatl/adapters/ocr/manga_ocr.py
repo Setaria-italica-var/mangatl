@@ -3,7 +3,8 @@
 ``manga-ocr`` is a third-party model (about 400 MB of weights) and is imported
 lazily so the pipeline still runs without it. Weights are fetched from the
 HuggingFace hub on first use; behind a slow link set ``HF_ENDPOINT`` to a mirror
-(``https://hf-mirror.com``) before constructing the adapter.
+(``https://hf-mirror.com``) and ``HF_HOME`` to a writable cache directory before
+constructing the adapter.
 
 The model returns text but no confidence, so blocks are tagged with a neutral
 score; the role classifier still rejects empty results as ``texture``.
@@ -24,24 +25,7 @@ DEFAULT_MODEL = "kha-white/manga-ocr-base"
 NEUTRAL_CONFIDENCE = 0.6
 
 
-class MangaOcrAdapter:
-    """Recognise Japanese text line by line with ``manga-ocr``."""
-
-    name = "manga_ocr"
-
-    def __init__(self, model_name: str = DEFAULT_MODEL, device: str = "cpu") -> None:
-        try:
-            from manga_ocr import MangaOcr
-        except ImportError as exc:  # pragma: no cover - depends on the install
-            raise ImportError(
-                "manga-ocr is not installed: uv pip install manga-ocr\n"
-                "downloads weights on first use; set HF_ENDPOINT=https://hf-mirror.com"
-            ) from exc
-        self.model_name = model_name
-        self._model = _build_model(MangaOcr, model_name, device)
-
-
-def _build_model(factory, model_name: str, device: str):
+def build_model(factory, model_name: str, device: str):
     """Instantiate ``MangaOcr`` whatever its constructor accepts.
 
     Released versions take ``(pretrained_model_name_or_path, force_cpu)``; some
@@ -57,6 +41,23 @@ def _build_model(factory, model_name: str, device: str):
     elif "device" in parameters:
         kwargs["device"] = device
     return factory(**kwargs)
+
+
+class MangaOcrAdapter:
+    """Recognise Japanese text line by line with ``manga-ocr``."""
+
+    name = "manga_ocr"
+
+    def __init__(self, model_name: str = DEFAULT_MODEL, device: str = "cpu") -> None:
+        try:
+            from manga_ocr import MangaOcr
+        except ImportError as exc:  # pragma: no cover - depends on the install
+            raise ImportError(
+                "manga-ocr is not installed: uv pip install manga-ocr\n"
+                "downloads weights on first use; set HF_ENDPOINT=https://hf-mirror.com"
+            ) from exc
+        self.model_name = model_name
+        self._model = build_model(MangaOcr, model_name, device)
 
     def recognize(self, image_path: Path, blocks: Sequence[TextBlock]) -> list[TextBlock]:
         """Fill ``text`` for every block; vertical blocks are rotated first."""
