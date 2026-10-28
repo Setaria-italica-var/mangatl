@@ -164,7 +164,20 @@ def export_onnx(
         return None
 
     model = YOLO(str(checkpoint))
-    produced = model.export(format="onnx", imgsz=imgsz, opset=12, simplify=True)
+    try:
+        produced = model.export(format="onnx", imgsz=imgsz, opset=12, simplify=True)
+    except ModuleNotFoundError as exc:
+        if exc.name in {"onnx", "onnxruntime", "onnxslim"}:
+            print(
+                f"missing dependency for export: {exc.name}\n"
+                '  uv pip install "onnx>=1.12,<2" onnxslim onnxruntime',
+                file=sys.stderr,
+            )
+            return None
+        raise
+    except Exception:
+        # onnxslim is optional; export again without graph simplification.
+        produced = model.export(format="onnx", imgsz=imgsz, opset=12, simplify=False)
     if not produced:
         print("export finished but returned no path", file=sys.stderr)
         return None
