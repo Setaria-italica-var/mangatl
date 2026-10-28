@@ -143,6 +143,39 @@ def decode(
     return bubbles
 
 
+def class_count(output: np.ndarray) -> int:
+    """Number of classes encoded in a YOLO head (channels minus the box)."""
+    tensor = np.asarray(output)
+    if tensor.ndim == 3:
+        tensor = tensor[0]
+    if tensor.ndim != 2:
+        return 0
+    rows, cols = tensor.shape
+    channels = rows if rows <= 200 and cols > 200 else cols
+    return max(0, channels - 4)
+
+
+def inside(block_bbox: tuple[int, int, int, int], bubbles: list[Bubble], pad: int = 2) -> bool:
+    """Whether the block's centre lies inside any bubble (with a small pad)."""
+    x1, y1, x2, y2 = block_bbox
+    centre_x, centre_y = (x1 + x2) / 2, (y1 + y2) / 2
+    for bubble in bubbles:
+        bx1, by1, bx2, by2 = bubble.bbox
+        if bx1 - pad <= centre_x <= bx2 + pad and by1 - pad <= centre_y <= by2 + pad:
+            return True
+    return False
+
+
+def covered(block_bbox: tuple[int, int, int, int], bubbles: list[Bubble]) -> bool:
+    """Bubble membership: enough overlap, or the centre is inside a bubble.
+
+    OCR boxes are often a few pixels larger than the bubble, so a strict
+    ``coverage >= 0.8`` test drops real dialogue; the centre test catches those
+    without letting a block that merely touches a bubble pass.
+    """
+    return coverage(block_bbox, bubbles) >= 0.6 or inside(block_bbox, bubbles)
+
+
 def coverage(block_bbox: tuple[int, int, int, int], bubbles: list[Bubble]) -> float:
     """Fraction of a block's area covered by the union of bubbles (0..1)."""
     x1, y1, x2, y2 = block_bbox
@@ -180,6 +213,55 @@ class BubbleDetector:
     def available(self) -> bool:
         """Whether the weights exist (the session itself is created lazily)."""
         return self.model_path.is_file()
+
+    def detect_multi(
+        self, image_path: Path, blocks=()
+    ) -> tuple[list[Bubble], int | None, dict[int, float]]:
+        """Detect bubbles, choosing the bubble class automatically when needed.
+
+        Multi-class checkpoints (text + bubble) are common; instead of guessing the
+        class id, each candidate class is scored by how well its boxes enclose the
+        OCR blocks. The best class wins for the whole page.
+
+        Returns ``(bubbles, class_index, per_class_score)``.
+        """
+        if not self.available:
+            return [], None, {}
+        from PIL import Image
+
+        session = self._get_session()
+        with Image.open(image_path) as handle:
+            page = handle.convert("RGB")
+            page_size = page.size
+            image = np.asarray(page)
+
+        canvas, scale, padding = letterbox(image, self.imgsz)
+        tensor = canvas[:, :, ::-1].transpose(2, 0, 1)[None].astype(np.float32) / 255.0
+        outputs = session.run(None, {session.get_inputs()[0].name: tensor})
+        output = outputs[0]
+
+        total = class_count(output)
+        if total <= 1 or self.class_index is not None:
+            index = self.class_index if self.class_index is not None else 0
+            chosen = index if total > 1 else None
+            bubbles = decode(
+                output, self.confidence, self.iou, scale, padding, page_size, chosen
+            )
+            return bubbles, index, {}
+
+        scores: dict[int, float] = {}
+        best_index, best_bubbles, best_score = 0, [], -1.0
+        for index in range(total):
+            bubbles = decode(output, self.confidence, self.iou, scale, padding, page_size, index)
+            score = (
+                float(np.mean([coverage(block.bbox, bubbles) for block in blocks]))
+                if blocks and bubbles
+                else 0.0
+            )
+            scores[index] = score
+            if score > best_score:
+                best_index, best_bubbles, best_score = index, bubbles, score
+        return best_bubbles, best_index, scores
 
     def detect(self, image_path: Path) -> list[Bubble]:
         """Detect bubbles on one page, in page coordinates."""

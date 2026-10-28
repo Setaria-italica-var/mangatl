@@ -172,6 +172,11 @@ def _build_parser() -> argparse.ArgumentParser:
     inspect = sub.add_parser("inspect", help="print the stored block decisions for a project")
     inspect.add_argument("directory", type=Path)
 
+    bubbles_test = sub.add_parser("bubbles-test", help="run the bubble model on one page")
+    bubbles_test.add_argument("page", type=Path)
+    bubbles_test.add_argument("--model", default="data/models/bubble_detector.onnx")
+    bubbles_test.add_argument("--classes", type=int, default=None)
+
     probe = sub.add_parser("probe", help="print an ONNX model's inputs and outputs")
     probe.add_argument("model", type=Path, help="path to a .onnx file")
     return parser
@@ -270,6 +275,47 @@ def _run_fetch_models(args) -> int:
     return 0
 
 
+def _run_bubbles_test(page: Path, model_path: str, classes: int | None) -> int:
+    """Show what the bubble model sees, class by class."""
+    import numpy as np
+    from PIL import Image
+
+    from mangatl.adapters.detectors.bubbles import (
+        BubbleDetector,
+        class_count,
+        decode,
+        letterbox,
+    )
+
+    detector = BubbleDetector(model_path, class_index=classes)
+    if not detector.available:
+        print(f"error: bubble model not found: {model_path}", file=sys.stderr)
+        return 2
+
+    session = detector._get_session()  # noqa: SLF001 - diagnostic command
+    with Image.open(page) as handle:
+        image = np.asarray(handle.convert("RGB"))
+        page_size = handle.size
+    canvas, scale, padding = letterbox(image, detector.imgsz)
+    tensor = canvas[:, :, ::-1].transpose(2, 0, 1)[None].astype(np.float32) / 255.0
+    output = session.run(None, {session.get_inputs()[0].name: tensor})[0]
+    total = class_count(output)
+    print(f"classes: {total}")
+
+    for index in range(max(1, total)):
+        chosen = index if total > 1 else None
+        bubbles = decode(
+            output, detector.confidence, detector.iou, scale, padding, page_size, chosen
+        )
+        print(f"class {index}: {len(bubbles)} bubbles")
+        for bubble in bubbles[:10]:
+            print(f"  {bubble.bbox} score={bubble.score:.3f}")
+
+    bubbles, chosen, scores = detector.detect_multi(page)
+    print(f"auto choice: class={chosen} scores={scores} bubbles={len(bubbles)}")
+    return 0
+
+
 def _run_inspect(directory: Path) -> int:
     """Print every block's role and geometry so a skipped page can be explained."""
     from mangatl.domain.project import Project
@@ -336,6 +382,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_inspect(args.directory)
     if args.command == "fetch-models":
         return _run_fetch_models(args)
+    if args.command == "bubbles-test":
+        return _run_bubbles_test(args.page, args.model, args.classes)
     if args.command != "run":  # pragma: no cover - argparse enforces the choices
         return 2
 
@@ -359,6 +407,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
 
     detectors, ocrs, inpainters, translators = default_registries()
+    if config.bubbles in ("auto", "model"):
+        model_path = Path(config.bubble_model)
+        backend = "model" if model_path.is_file() else "heuristic (model missing)"
+        print(f"bubbles: {backend}: {model_path}")
     enabled = config.enabled
     try:
         # Only build the adapters whose stage is selected: constructing an OCR

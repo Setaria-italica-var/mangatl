@@ -347,15 +347,19 @@ def annotate_with_model(page: Page, image_path: Path, detector) -> bool:
     if detector is None or not getattr(detector, "available", False):
         return False
     try:
-        from mangatl.adapters.detectors.bubbles import coverage
+        from mangatl.adapters.detectors.bubbles import covered
 
-        bubbles = detector.detect(image_path)
+        if hasattr(detector, "detect_multi"):
+            bubbles, index, _scores = detector.detect_multi(image_path, page.blocks)
+            detector.last_class = index
+        else:
+            bubbles = detector.detect(image_path)
     except Exception:  # a broken model must not stop the page
         return False
     if not bubbles:
         return False
     for block in page.blocks:
-        block.in_bubble = coverage(block.bbox, bubbles) >= 0.8
+        block.in_bubble = covered(block.bbox, bubbles)
     return True
 
 
