@@ -83,6 +83,9 @@ python -m mangatl run .\samples\vol1
 uv pip install --python .venv\Scripts\python.exe numpy pillow
 python -m mangatl run .\samples\vol1 --inpainter solid
 
+:: 只测一句，确认 Key/模型/网络（推荐先跑这条）
+python -m mangatl translate-test --text "おはよう、元気？" --target-lang 简体中文
+
 :: 测试与静态检查
 python -m pytest -q
 python -m ruff check .

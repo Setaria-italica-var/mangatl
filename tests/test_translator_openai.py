@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
+import io
 import json
+import urllib.error
 
-from mangatl.adapters.translators.openai_compat import LlmConfig, OpenAiTranslator
+import pytest
+
+from mangatl.adapters.translators.openai_compat import (
+    LlmConfig,
+    OpenAiTranslator,
+    TranslationError,
+    _Transport,
+)
 from mangatl.domain.block import TextBlock
 
 
@@ -81,3 +90,33 @@ def test_empty_blocks_are_skipped_without_a_request() -> None:
 
     assert transport.calls == []
     assert result[0].translation == ""
+
+
+def test_check_reports_translation_and_timing() -> None:
+    transport = FakeTransport([reply((0, "早上好"))])
+    translator = OpenAiTranslator(LlmConfig(api_key="k"), transport=transport)
+
+    result = translator.check("おはよう")
+
+    assert result["translation"] == "早上好"
+    assert result["model"] == LlmConfig().model
+    assert result["elapsed_s"] >= 0
+
+
+def test_http_error_is_mapped_with_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    def explode(*_args, **_kwargs):
+        raise urllib.error.HTTPError(
+            "https://x/v1/chat/completions",
+            401,
+            "Unauthorized",
+            {},
+            io.BytesIO(b'{"error":"bad key"}'),
+        )
+
+    monkeypatch.setattr("urllib.request.urlopen", explode)
+
+    with pytest.raises(TranslationError) as info:
+        _Transport().post("https://x/v1/chat/completions", {}, "k", 5)
+
+    assert "401" in str(info.value)
+    assert "bad key" in str(info.value)

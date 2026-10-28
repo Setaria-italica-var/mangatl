@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Sequence
@@ -74,8 +75,16 @@ class _Transport:
             },
             method="POST",
         )
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:300]
+            raise TranslationError(
+                f"HTTP {exc.code} from {url}: {detail or exc.reason}"
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise TranslationError(f"cannot reach {url}: {exc.reason}") from exc
 
 
 class TranslationError(RuntimeError):
@@ -128,6 +137,23 @@ class OpenAiTranslator:
             block.needs_review = True
             block.translation = block.text
         return list(blocks)
+
+    def check(self, text: str = "おはよう", target: str = "Simplified Chinese") -> dict[str, Any]:
+        """Send one short request and return diagnostics instead of retrying.
+
+        Used by ``mangatl translate-test`` so a bad key or model name fails
+        immediately with the provider's own message.
+        """
+        started = time.perf_counter()
+        block = TextBlock(id=0, bbox=(0, 0, 1, 1), text=text)
+        answers = self._request([block], "Japanese", target)
+        return {
+            "base_url": self.config.base_url,
+            "model": self.config.model,
+            "source": text,
+            "translation": answers.get(0, ""),
+            "elapsed_s": round(time.perf_counter() - started, 2),
+        }
 
     # -- request/parse ----------------------------------------------------
     def _request(

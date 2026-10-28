@@ -118,9 +118,47 @@ def _build_parser() -> argparse.ArgumentParser:
     demo.add_argument("--pages", type=int, default=6)
     demo.add_argument("--seed", type=int, default=7)
 
+    check = sub.add_parser("translate-test", help="send one sentence to the configured LLM")
+    check.add_argument("--text", default="おはよう")
+    check.add_argument("--target-lang", default="Simplified Chinese")
+
     probe = sub.add_parser("probe", help="print an ONNX model's inputs and outputs")
     probe.add_argument("model", type=Path, help="path to a .onnx file")
     return parser
+
+
+def _run_translate_test(text: str, target: str) -> int:
+    """One-shot provider check: fail with the provider's own message."""
+    from mangatl.adapters.translators.openai_compat import (
+        LlmConfig,
+        OpenAiTranslator,
+        TranslationError,
+    )
+
+    config = LlmConfig.from_env()
+    if not config.api_key:
+        print(
+            "error: MANGATL_API_KEY is not set\n"
+            "hint: set MANGATL_API_KEY=sk-... and optionally MANGATL_BASE_URL / MANGATL_MODEL",
+            file=sys.stderr,
+        )
+        return 2
+    print(f"base_url={config.base_url} model={config.model} key_len={len(config.api_key)}")
+    try:
+        result = OpenAiTranslator(config).check(text, target)
+    except TranslationError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        print(
+            "hint: 401 -> key wrong; 404 -> base_url or model name; "
+            "timeout -> network/proxy; 429 -> rate limit or quota",
+            file=sys.stderr,
+        )
+        return 1
+    except Exception as exc:  # noqa: BLE001 - surface anything the provider does
+        print(f"error: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
 
 
 def _run_probe(model: Path) -> int:
@@ -160,6 +198,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_demo(args.directory, args.pages, args.seed)
     if args.command == "probe":
         return _run_probe(args.model)
+    if args.command == "translate-test":
+        return _run_translate_test(args.text, args.target_lang)
     if args.command != "run":  # pragma: no cover - argparse enforces the choices
         return 2
 
