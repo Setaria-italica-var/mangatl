@@ -35,7 +35,8 @@ src/mangatl/
   adapters/imaging.py            Otsu/墨迹掩膜、行程并查集连通域、结构线判定（实线/虚线/嵌套/黑块）
   adapters/inpaint/masked.py     掩膜约束擦除：只抹文字像素、闭运算补洞、先膨胀后减结构线；
                                 气泡内 SFX 擦除，画面内嵌 SFX/符号降级为 texture 不擦；
-                                气泡判定 = 框外 25% 边距内亮像素占比 ≥ 50%（默认只擦气泡内）
+                                擦除范围 `--erase-scope strict|bright|all`：
+                                strict=闭环/flood 判定为气泡内；bright=再放宽到亮背景；all=所有检测块（仍只擦文字像素）
   adapters/ocr/manga_ocr.py      manga-ocr 适配器（日文，竖排先旋转 90°）
   adapters/ocr/rapid.py          RapidOCR（PP-OCR/ONNX）适配器：真实置信度 + 英文；整页识别后按重叠匹配块
   domain/roles.py                块级语义判定：dialogue / sfx / texture（用 OCR 结果做证据）

@@ -146,6 +146,92 @@ def label_components(mask: np.ndarray) -> tuple[np.ndarray, list[ComponentStats]
     return labels, stats
 
 
+def bounded_background(
+    pixels: np.ndarray,
+    bbox: tuple[int, int, int, int],
+    *,
+    light: int = 200,
+    window_scale: float = 1.6,
+) -> bool:
+    """Whether the light background around ``bbox`` is enclosed nearby.
+
+    Flood fills the light pixels from the block's centre inside a limited window.
+    If the fill reaches the window edge the background continues into the artwork
+    (no bubble); if it stays inside, the text sits in a closed bubble. This is
+    tolerant of small gaps in the outline, which a strict loop test is not.
+
+    >>> import numpy as np
+    >>> page = np.full((60, 60, 3), 250, dtype=np.uint8)
+    >>> bounded_background(page, (20, 20, 40, 40))
+    False
+    """
+    from collections import deque
+
+    height, width = pixels.shape[:2]
+    x1, y1, x2, y2 = bbox
+    x1, y1 = max(0, min(x1, width)), max(0, min(y1, height))
+    x2, y2 = max(0, min(x2, width)), max(0, min(y2, height))
+    if x2 <= x1 or y2 <= y1:
+        return False
+
+    pad_x = int((x2 - x1) * (window_scale - 1) / 2) + 8
+    pad_y = int((y2 - y1) * (window_scale - 1) / 2) + 8
+    left, top = max(0, x1 - pad_x), max(0, y1 - pad_y)
+    right, bottom = min(width, x2 + pad_x), min(height, y2 + pad_y)
+    if right - left < 8 or bottom - top < 8:
+        return False
+
+    crop = pixels[top:bottom, left:right, :3].astype(np.float32).mean(axis=2)
+    background = crop >= light
+    rows, cols = background.shape
+    start_y, start_x = (y1 + y2) // 2 - top, (x1 + x2) // 2 - left
+    start_y = min(max(0, start_y), rows - 1)
+    start_x = min(max(0, start_x), cols - 1)
+    if not background[start_y, start_x]:
+        return False
+
+    seen = np.zeros_like(background, dtype=bool)
+    queue = deque([(start_y, start_x)])
+    seen[start_y, start_x] = True
+    while queue:
+        y, x = queue.popleft()
+        if y in (0, rows - 1) or x in (0, cols - 1):
+            return False
+        for ny, nx in ((y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)):
+            if 0 <= ny < rows and 0 <= nx < cols and background[ny, nx] and not seen[ny, nx]:
+                seen[ny, nx] = True
+                queue.append((ny, nx))
+    return True
+
+
+def fill_holes(mask: np.ndarray) -> np.ndarray:
+    """Return ``mask`` plus every enclosed region (a binary fill-holes).
+
+    Used to turn bubble outlines into their interior: label the complement, keep
+    the components that do not touch the page border, and add them back.
+
+    >>> import numpy as np
+    >>> ring = np.zeros((9, 9), dtype=bool)
+    >>> ring[2, 2:7] = ring[6, 2:7] = ring[2:7, 2] = ring[2:7, 6] = True
+    >>> fill_holes(ring)[4, 4]
+    True
+    """
+    complement = ~mask
+    labels, stats = label_components(complement)
+    if not stats:
+        return mask
+
+    border_labels: set[int] = set()
+    border_labels.update(int(label) for label in labels[0, :])
+    border_labels.update(int(label) for label in labels[-1, :])
+    border_labels.update(int(label) for label in labels[:, 0])
+    border_labels.update(int(label) for label in labels[:, -1])
+    border_labels.discard(0)
+
+    holes = (labels > 0) & ~np.isin(labels, list(border_labels))
+    return mask | holes
+
+
 def structure_mask(
     labels: np.ndarray,
     stats: list[ComponentStats],

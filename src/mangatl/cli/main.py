@@ -108,6 +108,13 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--source-lang", default="ja")
     run.add_argument("--target-lang", default="zh-CN")
     run.add_argument(
+        "--erase-scope",
+        choices=("strict", "bright", "all"),
+        default="strict",
+        help="strict: only text enclosed by a bubble outline; bright: also very "
+        "light backgrounds; all: every detected block",
+    )
+    run.add_argument(
         "--erase-background",
         action="store_true",
         help="also erase text that is not inside a bubble (off by default)",
@@ -250,6 +257,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         force=args.force,
         sfx_policy=args.sfx,
         erase_background=args.erase_background,
+        erase_scope=args.erase_scope,
     )
 
     detectors, ocrs, inpainters, translators = default_registries()

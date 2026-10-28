@@ -118,7 +118,7 @@ class PipelineService:
                 assign_roles(page, config)
             elif stage == "translate":
                 ensure_mask(page, image_path, self.detector)
-                annotate_bubbles(page, image_path)
+                annotate_bubbles(page, image_path, config.erase_scope)
                 assign_roles(page, config)
                 for block in page.blocks:
                     if block.role == BlockRole.SYMBOL.value:
@@ -137,7 +137,7 @@ class PipelineService:
                     )
             elif stage == "render":
                 ensure_mask(page, image_path, self.detector)
-                annotate_bubbles(page, image_path)
+                annotate_bubbles(page, image_path, config.erase_scope)
                 assign_roles(page, config)
                 source = self.project.directory / config.output_dirname / page.name
                 if not source.is_file():
@@ -150,7 +150,7 @@ class PipelineService:
                 if page.size is None:
                     page.size = _image_size(image_path)
                 ensure_mask(page, image_path, self.detector)
-                annotate_bubbles(page, image_path)
+                annotate_bubbles(page, image_path, config.erase_scope)
                 assign_roles(page, config)
                 destination = self.project.directory / config.output_dirname / page.name
                 erasable = [block for block in page.blocks if should_erase(block, config)]
@@ -206,14 +206,65 @@ def mask_coverage(page: Page, block: TextBlock, threshold: float = 0.5) -> float
     return float((region > threshold).mean())
 
 
-def is_bubble(pixels, bbox: tuple[int, int, int, int], probability=None) -> bool:
-    """Whether a block sits on bubble paper.
+def interior_regions(pixels):
+    """Label the interiors of *individual* closed ink loops.
 
-    Looking only at a ring fails when the box is tight: the ring lands on the
-    bubble outline. When the detector mask is available the test uses the
-    *interior* background instead — the pixels between glyphs, which are bubble
-    paper for real dialogue and artwork for a sound effect drawn over a panel.
+    Filling all ink at once merges a bubble with the panel it touches, which
+    produced useless regions. Each loop is filled on its own instead, so a bubble
+    inside a panel keeps its own interior.
+
+    Returns ``(labels, stats)`` or ``None`` when the image stack is unavailable.
     """
+    try:
+        import numpy as np
+        from PIL import Image
+
+        from mangatl.adapters.imaging import ComponentStats, fill_holes, label_components
+    except ImportError:  # pragma: no cover - numpy/Pillow optional for stubs
+        return None
+
+    gray = np.asarray(Image.fromarray(pixels[..., :3]).convert("L"))
+    ink = gray < 200
+    labels, components = label_components(ink)
+    height, width = gray.shape
+    page_extent = float(max(height, width))
+
+    interiors = np.zeros(gray.shape, dtype=np.int32)
+    collected: list[ComponentStats] = []
+    next_label = 1
+
+    for component in components:
+        long_side = float(max(component.width, component.height))
+        if component.area < 120 or component.fill >= 0.25 or long_side < 0.05 * page_extent:
+            continue
+        x1, y1, x2, y2 = component.bbox
+        pad = 2
+        x1, y1 = max(0, x1 - pad), max(0, y1 - pad)
+        x2, y2 = min(width, x2 + pad), min(height, y2 + pad)
+        sub = labels[y1:y2, x1:x2] == component.label
+        if not sub.any():
+            continue
+        hole = fill_holes(sub) & ~sub
+        if not hole.any():
+            continue
+        ys, xs = np.nonzero(hole)
+        top, bottom = int(ys.min()), int(ys.max()) + 1
+        left, right = int(xs.min()), int(xs.max()) + 1
+        window = interiors[y1 + top : y1 + bottom, x1 + left : x1 + right]
+        window[hole[top:bottom, left:right]] = next_label
+        collected.append(
+            ComponentStats(
+                label=next_label,
+                area=int(hole.sum()),
+                bbox=(x1 + left, y1 + top, x1 + right, y1 + bottom),
+            )
+        )
+        next_label += 1
+    return interiors, collected
+
+
+def bright_fraction(pixels, bbox: tuple[int, int, int, int], probability=None) -> float:
+    """Share of light background pixels around the text (glyphs excluded)."""
     import numpy as np
 
     height, width = pixels.shape[:2]
@@ -221,19 +272,56 @@ def is_bubble(pixels, bbox: tuple[int, int, int, int], probability=None) -> bool
     x1, y1 = max(0, min(x1, width)), max(0, min(y1, height))
     x2, y2 = max(0, min(x2, width)), max(0, min(y2, height))
     if x2 <= x1 or y2 <= y1:
-        return False
-
-    # Look at the block plus a margin. Bubble paper dominates that window, while a
-    # sound effect drawn over a panel or a costume is surrounded by darker, busier
-    # pixels. Counting bright pixels is robust to the outline and to screentone.
+        return 0.0
     margin_x = max(6, int((x2 - x1) * 0.25))
     margin_y = max(6, int((y2 - y1) * 0.25))
     left, top = max(0, x1 - margin_x), max(0, y1 - margin_y)
     right, bottom = min(width, x2 + margin_x), min(height, y2 + margin_y)
-    window = pixels[top:bottom, left:right, :3].astype(np.float32)
-    luminance = window.mean(axis=2)
-    bright_fraction = float((luminance >= 160).mean())
-    return bright_fraction >= 0.5
+    luminance = pixels[top:bottom, left:right, :3].astype(np.float32).mean(axis=2)
+    if probability is not None:
+        mask = np.asarray(probability)[top:bottom, left:right]
+        background = luminance[mask < 0.2]
+        if background.size < 50:
+            return 0.0
+        return float((background >= 160).mean())
+    return float((luminance >= 160).mean())
+
+
+def is_bubble(bbox: tuple[int, int, int, int], regions, page_size: tuple[int, int]) -> bool:
+    """Whether a block sits inside a closed region of the drawing.
+
+    A speech bubble is a closed outline around the text. Checking that the whole
+    block is enclosed by one region is what separates dialogue from a sound
+    effect printed on the open artwork: the latter is not surrounded by any loop,
+    however white the paper behind it happens to be.
+    """
+    if regions is None:
+        return False
+    labels, stats = regions
+    height, width = page_size
+    x1, y1, x2, y2 = bbox
+    x1, y1 = max(0, min(x1, width)), max(0, min(y1, height))
+    x2, y2 = max(0, min(x2, width)), max(0, min(y2, height))
+    if x2 <= x1 or y2 <= y1:
+        return False
+
+    centre_y = min(height - 1, (y1 + y2) // 2)
+    centre_x = min(width - 1, (x1 + x2) // 2)
+    label = int(labels[centre_y, centre_x])
+    if label == 0:
+        return False
+    stats_by_label = {item.label: item for item in stats}
+    region = stats_by_label.get(label)
+    if region is None:
+        return False
+
+    blocked_area = (x2 - x1) * (y2 - y1)
+    if region.area > 0.35 * height * width:
+        return False  # a whole-page region is a panel or the page itself
+    if region.area < 0.8 * blocked_area:
+        return False
+    rx1, ry1, rx2, ry2 = region.bbox
+    return rx1 <= x1 + 2 and ry1 <= y1 + 2 and rx2 >= x2 - 2 and ry2 >= y2 - 2
 
 
 def ensure_mask(page: Page, image_path: Path, detector) -> None:
@@ -244,22 +332,33 @@ def ensure_mask(page: Page, image_path: Path, detector) -> None:
         page.text_mask = detector.text_mask(image_path)
 
 
-def annotate_bubbles(page: Page, image_path: Path) -> None:
-    """Mark blocks whose surroundings are flat (i.e. inside a speech bubble).
-
-    A light, uniform ring means the block sits on bubble paper and its glyphs are
-    dialogue or an in-bubble sound effect. A busy ring means the text is embedded
-    in the artwork, which must not be erased.
-    """
+def annotate_bubbles(page: Page, image_path: Path, scope: str = "strict") -> None:
+    """Mark each block as inside a closed bubble region or embedded in artwork."""
     try:
         import numpy as np
         from PIL import Image
     except ImportError:  # pragma: no cover - numpy/Pillow optional for stubs
         return
+
     with Image.open(image_path) as handle:
         pixels = np.array(handle.convert("RGB"))
+    from mangatl.adapters.imaging import bounded_background
+
+    page_size = (pixels.shape[1], pixels.shape[0])
+    regions = interior_regions(pixels)
     for block in page.blocks:
-        block.in_bubble = is_bubble(pixels, block.bbox, page.text_mask)
+        if scope == "all":
+            block.in_bubble = True
+            continue
+        enclosed = is_bubble(block.bbox, regions, page_size) or bounded_background(
+            pixels, block.bbox
+        )
+        if scope == "strict":
+            block.in_bubble = enclosed
+        else:
+            block.in_bubble = enclosed or (
+                bright_fraction(pixels, block.bbox, page.text_mask) >= 0.8
+            )
 
 
 def assign_roles(page: Page, config: RunConfig) -> None:

@@ -31,6 +31,7 @@ class RunConfig:
     force: bool = False
     sfx_policy: str = "erase"
     erase_background: bool = False
+    erase_scope: str = "strict"
     extra: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -39,6 +40,8 @@ class RunConfig:
             raise ValueError(f"unknown stages: {', '.join(unknown)}")
         if self.sfx_policy not in {"keep", "erase"}:
             raise ValueError(f"unknown sfx_policy: {self.sfx_policy}")
+        if self.erase_scope not in {"strict", "bright", "all"}:
+            raise ValueError(f"unknown erase_scope: {self.erase_scope}")
 
     @property
     def enabled(self) -> frozenset[str]:
