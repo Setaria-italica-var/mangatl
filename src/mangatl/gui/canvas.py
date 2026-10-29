@@ -72,7 +72,9 @@ class PageCanvas(QGraphicsView):
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
 
     # -- content ----------------------------------------------------------
-    def show_image(self, path, keep_selection: bool = False) -> None:
+    def show_image(
+        self, path, keep_selection: bool = False, preserve_view: bool = False
+    ) -> None:
         """Load the page image and reset the view.
 
         ``keep_selection`` keeps the lasso/rectangle alive when only the preview
@@ -96,7 +98,8 @@ class PageCanvas(QGraphicsView):
             self._show_selection(kept_points)
         self._pixmap_item = self.scene().addPixmap(pixmap)
         self.scene().setSceneRect(QRectF(pixmap.rect()))
-        self.fit()
+        if not preserve_view:
+            self.fit()
 
     def set_blocks(self, blocks, selected_ids: Sequence[int] = ()) -> None:
         """Redraw block overlays."""

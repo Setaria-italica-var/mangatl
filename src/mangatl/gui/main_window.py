@@ -66,6 +66,11 @@ class MainWindow(QMainWindow):
         self.selected_id: int | None = None
         self.selected_ids: list[int] = []
         self.view_mode = "source"
+        self.auto_preview = True
+        self._preview_timer = QTimer(self)
+        self._preview_timer.setSingleShot(True)
+        self._preview_timer.setInterval(350)
+        self._preview_timer.timeout.connect(self._auto_rerender)
         self.region: list[tuple[float, float]] | None = None
         self._undo: list[list[dict]] = []
 
@@ -149,6 +154,11 @@ class MainWindow(QMainWindow):
         self.btn_view_source.setChecked(True)
         for button in (self.btn_view_source, self.btn_view_erased, self.btn_view_result):
             bar.addWidget(button)
+        self.btn_auto = self._tool_button(
+            FIF.SYNC, "自动预览排版", self._toggle_auto_preview, True
+        )
+        self.btn_auto.setChecked(True)
+        bar.addWidget(self.btn_auto)
         bar.addSeparator()
 
         # view
@@ -593,6 +603,7 @@ class MainWindow(QMainWindow):
         self.sheets["editor"].show_block(None)
         self._touch_page()
         self.statusBar().showMessage(f"已删除 {len(targets)} 个块")
+        self._schedule_render()
 
     def restore_selected_region(self) -> None:
         if self.editor is None:
@@ -633,6 +644,7 @@ class MainWindow(QMainWindow):
         self.canvas.set_blocks(self.editor.page.blocks)
         self._touch_page()
         self.statusBar().showMessage("已撤销")
+        self._schedule_render()
 
     def on_geometry_changed(self, block_id: int, bbox: tuple) -> None:
         """Persist a block moved or resized on the canvas."""
@@ -645,6 +657,7 @@ class MainWindow(QMainWindow):
         self.editor.set_bbox(block, bbox)
         self.canvas.set_blocks(self.editor.page.blocks, [block_id])
         self._touch_page()
+        self._schedule_render()
         self.statusBar().showMessage(f"#{block_id} 已调整框 {block.bbox}")
 
     def on_block_edited(
@@ -664,6 +677,7 @@ class MainWindow(QMainWindow):
         block.needs_review = False
         self.editor.project.save()
         self._touch_page()
+        self._schedule_render()
         self.canvas.set_blocks(self.editor.page.blocks, [block_id])
         self.statusBar().showMessage(f"已更新 #{block_id}")
 
@@ -676,6 +690,7 @@ class MainWindow(QMainWindow):
         self._snapshot()
         self.editor.set_style(block, style)
         self.statusBar().showMessage(f"#{block_id} 样式已保存")
+        self._schedule_render()
         if rerender:
             self.rerender()
 
@@ -741,7 +756,7 @@ class MainWindow(QMainWindow):
             return
         path = self.editor.rerender()
         self.view_mode = "result"
-        self.canvas.show_image(path, keep_selection=True)
+        self.canvas.show_image(path, keep_selection=True, preserve_view=True)
         self.canvas.set_blocks(self.editor.page.blocks)
         self._touch_page()
         self.statusBar().showMessage(f"已排版 -> {path}")
@@ -836,6 +851,33 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"强调色已切换为 {colour}")
 
     # -- misc -------------------------------------------------------------
+    def _toggle_auto_preview(self, checked: bool) -> None:
+        self.auto_preview = bool(checked)
+        if not self.auto_preview:
+            self._preview_timer.stop()
+        self.statusBar().showMessage(
+            "自动预览已开启" if self.auto_preview else "自动预览已关闭"
+        )
+
+    def _schedule_render(self) -> None:
+        """Render the current page shortly after an edit settles."""
+        if self.auto_preview and self.editor is not None:
+            self._preview_timer.start()
+
+    def _auto_rerender(self) -> None:
+        """Redraw the page and refresh the result view when it is on screen."""
+        if self.editor is None:
+            return
+        try:
+            path = self.editor.rerender()
+        except Exception as exc:  # noqa: BLE001 - a broken block must not kill the UI
+            self.statusBar().showMessage(f"自动排版失败：{exc}")
+            return
+        if self.view_mode == "result":
+            self.canvas.show_image(path, keep_selection=True, preserve_view=True)
+            self.canvas.set_blocks(self.editor.page.blocks, self.selected_ids)
+        self.statusBar().showMessage("已自动重排当前页")
+
     def show_view(self, mode: str, quiet: bool = False) -> None:
         """Display the original, the erased page or the typeset result."""
         if self.editor is None:
@@ -850,6 +892,8 @@ class MainWindow(QMainWindow):
             mode = "source"
         self.view_mode = mode
         if mode == "result" and not quiet and self._result_is_stale():
+            if self.auto_preview:
+                self._auto_rerender()
             InfoBar.warning(
                 "结果图可能过期",
                 "project.json 比结果图新，点「运行本页」重新生成",
@@ -857,7 +901,7 @@ class MainWindow(QMainWindow):
             )
         path = self.editor.view_path(mode)
         if path is not None:
-            self.canvas.show_image(path, keep_selection=True)
+            self.canvas.show_image(path, keep_selection=True, preserve_view=True)
             self.canvas.set_blocks(self.editor.page.blocks, self.selected_ids)
         self.btn_view_source.setChecked(mode == "source")
         self.btn_view_erased.setChecked(mode == "erased")
@@ -872,7 +916,11 @@ class MainWindow(QMainWindow):
         project_file = self.project.directory / "project.json"
         if not project_file.is_file():
             return False
-        return project_file.stat().st_mtime > self.editor.result_path.stat().st_mtime
+        # A fresh render touches result then saves project, so allow a small gap.
+        return (
+            project_file.stat().st_mtime
+            > self.editor.result_path.stat().st_mtime + 2.0
+        )
 
     def open_folder_dialog(self) -> None:
         """Switch to another manga folder."""
