@@ -17,11 +17,11 @@ def run(project_dir: Path | str) -> int:
         )
         return 2
 
+    from mangatl.gui.fluent import init_fluent
     from mangatl.gui.main_window import MainWindow
-    from mangatl.gui.theme import apply_theme
 
     application = QApplication.instance() or QApplication(sys.argv[:1])
-    apply_theme(application)
+    init_fluent(application)
     window = MainWindow(Path(project_dir))
     window.show()
     return application.exec()

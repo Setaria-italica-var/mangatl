@@ -1,4 +1,4 @@
-"""Main window: thumbnails, sheet-style page tabs, canvas and inspector."""
+"""Fluent main window: page sidebar, canvas, inspector and module sheets."""
 
 from __future__ import annotations
 
@@ -6,28 +6,38 @@ import os
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
-    QComboBox,
     QDockWidget,
     QHBoxLayout,
     QInputDialog,
-    QLabel,
     QMainWindow,
     QMessageBox,
-    QPushButton,
-    QTextEdit,
     QToolBar,
     QVBoxLayout,
     QWidget,
+)
+from qfluentwidgets import (
+    BodyLabel,
+    CaptionLabel,
+    CardWidget,
+    ComboBox,
+    InfoBar,
+    InfoBarPosition,
+    PrimaryPushButton,
+    PushButton,
+    TextEdit,
+    TransparentToolButton,
+)
+from qfluentwidgets import (
+    FluentIcon as FIF,
 )
 
 from mangatl.domain.project import Project
 from mangatl.gui.canvas import PageCanvas
 from mangatl.gui.editor import PageEditor
-from mangatl.gui.pages import PageTabs, ThumbnailList
-from mangatl.gui.search import GlobalSearchDialog
-from mangatl.gui.theme import icon, toolbar_icon_size
+from mangatl.gui.fluent import set_accent
+from mangatl.gui.pages import ThumbnailList
+from mangatl.gui.sheets import build_sheets
 
 
 class MainWindow(QMainWindow):
@@ -36,7 +46,7 @@ class MainWindow(QMainWindow):
     def __init__(self, project_dir: Path) -> None:
         super().__init__()
         self.setWindowTitle(f"mangatl — {project_dir.name}")
-        self.resize(1500, 940)
+        self.resize(1560, 980)
 
         self.project = Project.open(project_dir)
         if not len(self.project):
@@ -49,8 +59,9 @@ class MainWindow(QMainWindow):
 
         self._build_toolbar()
         self._build_central()
-        self._build_pages()
+        self._build_sidebar()
         self._build_inspector()
+        self._build_sheets()
         self.statusBar().showMessage("就绪")
 
         self.refresh_pages()
@@ -60,66 +71,60 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("项目里没有图片：请把页面放进该目录")
 
     # -- construction -----------------------------------------------------
-    def _action(self, icon_name: str, text: str, shortcut=None, checkable=False) -> QAction:
-        """Create a toolbar action with an icon and optional shortcut."""
-        action = QAction(icon(icon_name), text, self)
-        action.setCheckable(checkable)
-        if shortcut is not None:
-            action.setShortcut(QKeySequence(shortcut))
-        return action
+    def _tool_button(self, icon, tooltip: str, slot, checkable: bool = False):
+        button = TransparentToolButton(icon)
+        button.setToolTip(tooltip)
+        button.setCheckable(checkable)
+        button.clicked.connect(slot)
+        return button
 
     def _build_toolbar(self) -> None:
         bar = QToolBar("工具", self)
         bar.setMovable(False)
-        bar.setIconSize(toolbar_icon_size())
         self.addToolBar(bar)
 
-        self.act_select = self._action("fa6s.arrow-pointer", "选择", checkable=True)
-        self.act_select.setChecked(True)
-        self.act_select.triggered.connect(lambda: self._set_mode("select"))
-        self.act_lasso = self._action("fa6s.lasso", "套索", checkable=True)
-        self.act_lasso.triggered.connect(lambda: self._set_mode("lasso"))
-        self.act_rect = self._action("fa6s.vector-square", "矩形", checkable=True)
-        self.act_rect.triggered.connect(lambda: self._set_mode("rect"))
-        for action in (self.act_select, self.act_lasso, self.act_rect):
-            bar.addAction(action)
+        self.btn_select = self._tool_button(
+            FIF.CLEAR_SELECTION, "选择", lambda: self._set_mode("select"), True
+        )
+        self.btn_lasso = self._tool_button(
+            FIF.CUT, "套索", lambda: self._set_mode("lasso"), True
+        )
+        self.btn_rect = self._tool_button(
+            FIF.FULL_SCREEN, "矩形", lambda: self._set_mode("rect"), True
+        )
+        self.btn_select.setChecked(True)
+        for button in (self.btn_select, self.btn_lasso, self.btn_rect):
+            bar.addWidget(button)
 
         bar.addSeparator()
-        self.act_fit = self._action("fa6s.expand", "适应窗口", "F")
-        self.act_fit.triggered.connect(lambda: self.canvas.fit())
-        bar.addAction(self.act_fit)
-        self.act_rotate = self._action("fa6s.rotate-right", "旋转 90°", "R")
-        self.act_rotate.triggered.connect(lambda: self.canvas.rotate_view())
-        bar.addAction(self.act_rotate)
+        bar.addWidget(self._tool_button(FIF.FIT_PAGE, "适应窗口", lambda: self.canvas.fit()))
+        bar.addWidget(
+            self._tool_button(FIF.ROTATE, "旋转 90°", lambda: self.canvas.rotate_view())
+        )
 
         bar.addSeparator()
-        self.act_prev = self._action("fa6s.chevron-left", "上一页", "PgUp")
-        self.act_prev.triggered.connect(lambda: self.load_page(self.page_index - 1))
-        self.act_next = self._action("fa6s.chevron-right", "下一页", "PgDown")
-        self.act_next.triggered.connect(lambda: self.load_page(self.page_index + 1))
-        bar.addAction(self.act_prev)
-        bar.addAction(self.act_next)
+        bar.addWidget(
+            self._tool_button(
+                FIF.LEFT_ARROW, "上一页", lambda: self.load_page(self.page_index - 1)
+            )
+        )
+        bar.addWidget(
+            self._tool_button(
+                FIF.RIGHT_ARROW, "下一页", lambda: self.load_page(self.page_index + 1)
+            )
+        )
 
         bar.addSeparator()
-        self.act_search = self._action("fa6s.magnifying-glass", "全局搜索", "Ctrl+G")
-        self.act_search.triggered.connect(self.open_search)
-        bar.addAction(self.act_search)
-        self.act_run = self._action("fa6s.play", "运行本页", "F5")
-        self.act_run.triggered.connect(lambda: self.run_page(self.page_index))
-        bar.addAction(self.act_run)
-
-        self.act_undo = self._action("fa6s.rotate-left", "撤销", "Ctrl+Z")
-        self.act_undo.triggered.connect(self.undo)
-        bar.addAction(self.act_undo)
-        self.act_save = self._action("fa6s.floppy-disk", "保存", "Ctrl+S")
-        self.act_save.triggered.connect(self.save)
-        bar.addAction(self.act_save)
+        bar.addWidget(self._tool_button(FIF.SEARCH, "全局搜索", self.open_search))
+        bar.addWidget(
+            self._tool_button(
+                FIF.PLAY, "运行本页", lambda: self.run_page(self.page_index)
+            )
+        )
+        bar.addWidget(self._tool_button(FIF.SAVE, "保存", self.save))
+        bar.addWidget(self._tool_button(FIF.RETURN, "撤销", self.undo))
 
     def _build_central(self) -> None:
-        container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
         self.canvas = PageCanvas(self)
         self.canvas.blockClicked.connect(self.select_block)
         self.canvas.lassoFinished.connect(self.on_lasso)
@@ -127,82 +132,72 @@ class MainWindow(QMainWindow):
         self.canvas.cursorMoved.connect(
             lambda x, y: self.statusBar().showMessage(f"x={x} y={y}")
         )
-        layout.addWidget(self.canvas, 1)
-        self.tabs = PageTabs()
-        self.tabs.pageSelected.connect(self.load_page)
-        self.tabs.pageAction.connect(self.on_page_action)
-        layout.addWidget(self.tabs)
-        self.setCentralWidget(container)
+        self.setCentralWidget(self.canvas)
 
-    def _build_pages(self) -> None:
+    def _build_sidebar(self) -> None:
         dock = QDockWidget("页面", self)
         dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
         self.page_list = ThumbnailList()
         self.page_list.pageSelected.connect(self.load_page)
         self.page_list.pageAction.connect(self.on_page_action)
         dock.setWidget(self.page_list)
-        dock.setMinimumWidth(190)
+        dock.setMinimumWidth(200)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, dock)
 
     def _build_inspector(self) -> None:
         dock = QDockWidget("文本块", self)
-        dock.setMinimumWidth(330)
+        dock.setMinimumWidth(340)
         panel = QWidget()
         layout = QVBoxLayout(panel)
+        layout.setContentsMargins(8, 8, 8, 8)
 
-        self.info = QLabel("未选中")
+        card = CardWidget()
+        card_layout = QVBoxLayout(card)
+        self.info = BodyLabel("未选中文本块")
         self.info.setWordWrap(True)
-        layout.addWidget(self.info)
+        card_layout.addWidget(self.info)
+        self.meta = CaptionLabel("")
+        card_layout.addWidget(self.meta)
+        layout.addWidget(card)
 
-        layout.addWidget(QLabel("原文（可手工修正）"))
-        self.text_edit = QTextEdit()
-        self.text_edit.setFixedHeight(88)
+        layout.addWidget(CaptionLabel("原文（可手工修正）"))
+        self.text_edit = TextEdit()
+        self.text_edit.setFixedHeight(92)
         layout.addWidget(self.text_edit)
 
-        layout.addWidget(QLabel("译文"))
-        self.translation_edit = QTextEdit()
-        self.translation_edit.setFixedHeight(88)
+        layout.addWidget(CaptionLabel("译文"))
+        self.translation_edit = TextEdit()
+        self.translation_edit.setFixedHeight(92)
         layout.addWidget(self.translation_edit)
 
-        layout.addWidget(QLabel("角色"))
-        self.role_box = QComboBox()
+        layout.addWidget(CaptionLabel("角色"))
+        self.role_box = ComboBox()
         self.role_box.addItems(["dialogue", "sfx", "symbol", "texture"])
         layout.addWidget(self.role_box)
 
         row = QHBoxLayout()
-        self.btn_apply = QPushButton("应用文本")
+        self.btn_apply = PrimaryPushButton(FIF.ACCEPT, "应用文本")
         self.btn_apply.clicked.connect(self.apply_text)
         row.addWidget(self.btn_apply)
-        self.btn_reocr = QPushButton("重新识别")
+        self.btn_reocr = PushButton(FIF.SYNC, "重新识别")
         self.btn_reocr.clicked.connect(self.reocr_block)
         row.addWidget(self.btn_reocr)
         layout.addLayout(row)
 
         row2 = QHBoxLayout()
-        self.btn_translate = QPushButton("翻译此块")
+        self.btn_translate = PushButton(FIF.GLOBE, "翻译此块")
         self.btn_translate.clicked.connect(self.translate_block)
         row2.addWidget(self.btn_translate)
-        self.btn_render = QPushButton("重新排版")
+        self.btn_render = PushButton(FIF.PHOTO, "重新排版")
         self.btn_render.clicked.connect(self.rerender)
         row2.addWidget(self.btn_render)
         layout.addLayout(row2)
 
-        layout.addWidget(QLabel("区域操作（套索/矩形后执行）"))
-        self.btn_detect = QPushButton("区域重新检测")
-        self.btn_detect.clicked.connect(self.redetect_region)
-        layout.addWidget(self.btn_detect)
-        self.btn_erase = QPushButton("区域重新擦除")
-        self.btn_erase.clicked.connect(self.erase_region)
-        layout.addWidget(self.btn_erase)
-        self.btn_add = QPushButton("区域添加文本块")
-        self.btn_add.clicked.connect(self.add_region_block)
-        layout.addWidget(self.btn_add)
-
         row3 = QHBoxLayout()
-        self.btn_delete = QPushButton("删除选中块")
+        self.btn_delete = PushButton(FIF.DELETE, "删除")
         self.btn_delete.clicked.connect(self.delete_block)
         row3.addWidget(self.btn_delete)
-        self.btn_open = QPushButton("打开结果图")
+        self.btn_open = PushButton(FIF.FOLDER, "打开结果图")
         self.btn_open.clicked.connect(self.open_result)
         row3.addWidget(self.btn_open)
         layout.addLayout(row3)
@@ -211,15 +206,38 @@ class MainWindow(QMainWindow):
         dock.setWidget(panel)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
 
+    def _build_sheets(self) -> None:
+        from mangatl.gui.sheets import SheetHost
+
+        self.sheets = build_sheets(self.project)
+        self.sheet_host = SheetHost(self.sheets)
+        dock = QDockWidget("模块", self)
+        dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
+        dock.setWidget(self.sheet_host)
+        dock.setMinimumHeight(170)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, dock)
+        self.sheet_dock = dock
+        self.resizeDocks([dock], [230], Qt.Orientation.Vertical)
+
+        self.sheets["editor"].regionAction.connect(self.on_sheet_region)
+        self.sheets["blocks"].blockSelected.connect(self.select_block)
+        self.sheets["blocks"].blockEdited.connect(self.on_table_edit)
+        self.sheets["search"].jumpRequested.connect(self._jump_to_block)
+        self.sheets["run"].runRequested.connect(self.on_run_requested)
+        self.sheets["settings"].accentChanged.connect(self.on_accent)
+
     # -- pages ------------------------------------------------------------
     def refresh_pages(self) -> None:
-        """Rebuild the tab bar and thumbnail list from the project."""
-        names = [page.name for page in self.project]
-        self.tabs.set_pages(names)
-        self.page_list.set_pages(list(self.project), self.project.directory)
-        for index, page in enumerate(self.project):
-            self.tabs.update_page(index, page)
-            self.page_list.update_page(index, page)
+        pages = list(self.project)
+        self.page_list.set_pages(pages, self.project.directory)
+        self.sheets["search"].project = self.project
+        self.sheets["search"].refresh()
+        self._refresh_sheets()
+
+    def _refresh_sheets(self) -> None:
+        page = list(self.project)[self.page_index] if len(self.project) else None
+        self.sheets["editor"].show_page(page)
+        self.sheets["blocks"].show_page(page)
 
     def load_page(self, index: int) -> None:
         if not len(self.project):
@@ -229,7 +247,6 @@ class MainWindow(QMainWindow):
         self.page_list.blockSignals(True)
         self.page_list.setCurrentRow(index)
         self.page_list.blockSignals(False)
-        self.tabs.select(index)
         page = list(self.project)[index]
         self.editor = PageEditor(self.project, page)
         self.selected_id = None
@@ -237,11 +254,10 @@ class MainWindow(QMainWindow):
         self._undo.clear()
         self.canvas.show_image(self.editor.image_path)
         self.canvas.set_blocks(page.blocks)
-        self.info.setText(f"{page.name} — {len(page.blocks)} 块")
+        self._refresh_sheets()
         self.statusBar().showMessage(f"已加载 {page.name}")
 
     def on_page_action(self, action: str, index: int) -> None:
-        """Handle the page-level context-menu actions."""
         if action == "add":
             self.project.scan()
             self.refresh_pages()
@@ -281,7 +297,6 @@ class MainWindow(QMainWindow):
         self.project.save()
         self.refresh_pages()
         self.load_page(index)
-        self.statusBar().showMessage(f"已重命名为 {new_name}")
 
     def reset_page(self, index: int) -> None:
         page = list(self.project)[index]
@@ -294,7 +309,6 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"{page.name} 已重置")
 
     def run_page(self, index: int) -> None:
-        """Run the automatic pipeline for one page."""
         from mangatl.core.config import RunConfig
         from mangatl.gui.pipeline_bridge import build_default_service
 
@@ -305,6 +319,9 @@ class MainWindow(QMainWindow):
         except Exception as exc:  # noqa: BLE001 - surface the failure in the GUI
             QMessageBox.warning(self, "运行失败", str(exc))
             return
+        self.sheets["run"].append(
+            f"{page.name}: 成功 {summary.ok} 失败 {summary.failed} 块 {summary.blocks}"
+        )
         self.refresh_pages()
         self.load_page(index)
         self.statusBar().showMessage(
@@ -316,9 +333,8 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("已保存 project.json")
 
     def open_search(self) -> None:
-        dialog = GlobalSearchDialog(self.project, self)
-        dialog.jumpRequested.connect(self._jump_to_block)
-        dialog.exec()
+        self.sheet_host.show_sheet("search")
+        self.sheet_dock.show()
 
     def _jump_to_block(self, page_index: int, block_id: int) -> None:
         self.load_page(page_index)
@@ -336,8 +352,11 @@ class MainWindow(QMainWindow):
         self.translation_edit.setPlainText(block.translation)
         self.role_box.setCurrentText(block.role)
         self.info.setText(
-            f"#{block.id} {block.role} {'竖排' if block.vertical else '横排'} "
-            f"score={block.ocr_score:.2f} source={block.ocr_source or '-'}"
+            f"#{block.id} {block.role} {'竖排' if block.vertical else '横排'}"
+        )
+        self.meta.setText(
+            f"score={block.ocr_score:.2f} · source={block.ocr_source or '-'} · "
+            f"{'气泡内' if block.in_bubble else '背景'}"
         )
         self.canvas.set_blocks(self.editor.page.blocks, [block_id])
 
@@ -380,6 +399,21 @@ class MainWindow(QMainWindow):
         self.refresh_pages()
         self.statusBar().showMessage(f"已更新 #{block.id}")
 
+    def on_table_edit(self, block_id: int, text: str, translation: str) -> None:
+        block = (
+            next((b for b in self.editor.page.blocks if b.id == block_id), None)
+            if self.editor
+            else None
+        )
+        if block is None:
+            return
+        block.text = text
+        block.translation = translation
+        block.ocr_source = "manual"
+        block.needs_review = False
+        self.editor.project.save()
+        self.statusBar().showMessage(f"表格已更新 #{block_id}")
+
     def reocr_block(self) -> None:
         block = self._selected()
         if block is None or self.editor is None:
@@ -406,7 +440,9 @@ class MainWindow(QMainWindow):
         try:
             translator = OpenAiTranslator(LlmConfig.from_env())
         except TranslationError as exc:
-            QMessageBox.warning(self, "翻译不可用", str(exc))
+            InfoBar.warning(
+                "翻译不可用", str(exc), parent=self, position=InfoBarPosition.TOP
+            )
             return
         translator.translate([block], {"target_lang": "简体中文"})
         self.translation_edit.setPlainText(block.translation)
@@ -443,16 +479,28 @@ class MainWindow(QMainWindow):
     # -- region actions ---------------------------------------------------
     def on_lasso(self, points: list) -> None:
         self.region = points
-        self.statusBar().showMessage(f"已选择区域（{len(points)} 点），选择右侧操作")
+        self.statusBar().showMessage(
+            f"已选择区域（{len(points)} 点），选“编辑”页签里的操作"
+        )
 
     def on_rect(self, box: tuple) -> None:
         x1, y1, x2, y2 = box
         self.region = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
-        self.statusBar().showMessage("已选择矩形区域，选择右侧操作")
+        self.statusBar().showMessage("已选择矩形区域，选“编辑”页签里的操作")
+
+    def on_sheet_region(self, action: str) -> None:
+        if action == "detect":
+            self.redetect_region()
+        elif action == "erase":
+            self.erase_region()
+        elif action == "add":
+            self.add_region_block()
+        elif action == "render":
+            self.rerender()
 
     def _require_region(self) -> bool:
         if self.region is None:
-            QMessageBox.information(self, "需要区域", "先用套索或矩形工具框选一块区域")
+            InfoBar.info("需要区域", "先用套索或矩形工具框选一块区域", parent=self)
             return False
         return True
 
@@ -488,10 +536,37 @@ class MainWindow(QMainWindow):
         self.text_edit.setFocus()
         self.statusBar().showMessage("已添加文本块，输入内容后点“应用文本”")
 
+    # -- run / theme ------------------------------------------------------
+    def on_run_requested(self, stages, all_pages: bool) -> None:
+        from mangatl.core.config import RunConfig
+        from mangatl.gui.pipeline_bridge import build_default_service
+
+        if not stages:
+            InfoBar.warning("未选择阶段", "至少勾选一个阶段", parent=self)
+            return
+        try:
+            service = build_default_service(self.project)
+            only = None if all_pages else {list(self.project)[self.page_index].name}
+            summary = service.run(RunConfig(stages=tuple(stages)), only=only)
+        except Exception as exc:  # noqa: BLE001 - show failures in the log
+            self.sheets["run"].append(f"运行失败：{exc}")
+            InfoBar.error("运行失败", str(exc), parent=self)
+            return
+        self.sheets["run"].append(
+            f"完成：成功 {summary.ok}，失败 {summary.failed}，"
+            f"跳过 {summary.skipped}，块 {summary.blocks}"
+        )
+        self.refresh_pages()
+        self.load_page(self.page_index)
+
+    def on_accent(self, colour: str) -> None:
+        set_accent(colour)
+        self.statusBar().showMessage(f"强调色已切换为 {colour}")
+
     # -- misc -------------------------------------------------------------
     def _set_mode(self, mode: str) -> None:
         self.canvas.set_mode(mode)
-        self.act_select.setChecked(mode == "select")
-        self.act_lasso.setChecked(mode == "lasso")
-        self.act_rect.setChecked(mode == "rect")
+        self.btn_select.setChecked(mode == "select")
+        self.btn_lasso.setChecked(mode == "lasso")
+        self.btn_rect.setChecked(mode == "rect")
         self.statusBar().showMessage(f"工具：{mode}")
