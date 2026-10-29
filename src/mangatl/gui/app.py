@@ -43,6 +43,9 @@ def run(project_dir: Path | str | None = None) -> int:
         return 2
 
     _install_qt_log_filter()
+    from mangatl.io.settings import apply_saved_settings
+
+    apply_saved_settings()
     from mangatl.gui.fluent import init_fluent
     from mangatl.gui.home import HomeWindow, welcome_or_folder
     from mangatl.gui.main_window import MainWindow

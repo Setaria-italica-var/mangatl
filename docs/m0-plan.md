@@ -46,7 +46,7 @@ src/mangatl/
   render/fonts.py                字体解析：data/fonts 优先，其次系统 CJK 字体
   render/renderer.py             唯一写像素的地方：横排/竖排绘制、描边、竖排旋转字形
   gui/                           PySide6 编辑器：画布、套索/矩形选区、区域重检/擦除、块编辑
-  adapters/translators/echo.py   透传翻译器（无 Key 也能跑通流程）
+  adapters/translators/openai_compat.py  OpenAI 兼容翻译（云端 + 本地 ollama/lmstudio/llamacpp）
   adapters/translators/openai_compat.py  OpenAI 兼容 LLM：逐块 JSON 契约、缺块重试、失败回退原文
   core/config.py         RunConfig（不可变）+ resolve()
   core/pipeline.py       PipelineService / Event / RunSummary

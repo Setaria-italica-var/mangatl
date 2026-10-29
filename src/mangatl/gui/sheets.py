@@ -436,7 +436,13 @@ class SettingsSheet(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 8, 10, 8)
 
-        layout.addWidget(BodyLabel("翻译接口（仅本次运行有效）"))
+        layout.addWidget(BodyLabel("翻译接口"))
+        self.preset_box = ComboBox()
+        self.preset_box.addItems(
+            ["DeepSeek 云端", "Ollama 本地", "LM Studio 本地", "llama.cpp 本地", "自定义"]
+        )
+        self.preset_box.currentIndexChanged.connect(self._apply_preset)
+        layout.addWidget(self.preset_box)
         self.api_key = LineEdit()
         self.api_key.setPlaceholderText("MANGATL_API_KEY，例如 sk-…")
         self.api_key.setEchoMode(LineEdit.EchoMode.Password)
@@ -447,6 +453,8 @@ class SettingsSheet(QWidget):
         self.model_name = LineEdit()
         self.model_name.setPlaceholderText("deepseek-chat")
         layout.addWidget(self.model_name)
+        self.remember_box = CheckBox("记住 Key（Windows DPAPI 加密）")
+        layout.addWidget(self.remember_box)
         api_row = QHBoxLayout()
         self.btn_api = PushButton("应用接口设置")
         self.btn_api.clicked.connect(self._apply_api)
@@ -455,7 +463,10 @@ class SettingsSheet(QWidget):
         api_row.addWidget(self.api_status, 1)
         layout.addLayout(api_row)
         layout.addWidget(
-            CaptionLabel("永久生效请设置系统环境变量；这里只写入当前进程。")
+            CaptionLabel(
+                "设置保存在 data/settings.json；"
+                "Key 用 DPAPI 加密后写入 data/secrets.bin。"
+            )
         )
 
         layout.addWidget(BodyLabel("强调色"))
@@ -502,32 +513,91 @@ class SearchDialog(QDialog):
         self.sheet.refresh()
 
 
+def _settings_apply_preset(self) -> None:
+    from mangatl.adapters.translators.openai_compat import PROFILES
+
+    profiles = ["openai", "ollama", "lmstudio", "llamacpp", None]
+    profile = profiles[self.preset_box.currentIndex()]
+    if profile is None:
+        return
+    base, model, needs_key = PROFILES[profile]
+    self.base_url.setText(base)
+    self.model_name.setText(model)
+    self.api_key.setEnabled(needs_key)
+    if not needs_key:
+        self.api_key.setPlaceholderText("本地模型通常不需要 Key")
+
+
 def _settings_apply_api(self) -> None:
     import os
 
+    from mangatl.io import settings as prefs
+
+    profiles = ["openai", "ollama", "lmstudio", "llamacpp", "openai"]
+    profile = profiles[self.preset_box.currentIndex()]
     key = self.api_key.text().strip()
-    if not key:
-        self.api_status.setText("请先填写 Key")
+    base = self.base_url.text().strip()
+    model = self.model_name.text().strip()
+    if profile == "openai" and not key:
+        self.api_status.setText("云端翻译需要 Key")
         return
-    os.environ["MANGATL_API_KEY"] = key
-    if self.base_url.text().strip():
-        os.environ["MANGATL_BASE_URL"] = self.base_url.text().strip()
-    if self.model_name.text().strip():
-        os.environ["MANGATL_MODEL"] = self.model_name.text().strip()
-    self.api_status.setText("已写入当前进程")
+    if key:
+        os.environ["MANGATL_API_KEY"] = key
+    if base:
+        os.environ["MANGATL_BASE_URL"] = base
+    if model:
+        os.environ["MANGATL_MODEL"] = model
+    prefs.save_settings({"profile": profile, "base_url": base, "model": model})
+    if key and self.remember_box.isChecked():
+        stored = prefs.save_api_key(key)
+        self.api_status.setText(
+            "已加密保存" if stored else "DPAPI 不可用，仅本次运行"
+        )
+    else:
+        prefs.clear_api_key()
+        self.api_status.setText("已写入当前进程（未保存 Key）")
     self.apiConfigured.emit()
+
+
+def _settings_load_saved(self) -> None:
+    import os
+
+    from mangatl.io import secrets as secure
+    from mangatl.io import settings as prefs
+
+    saved = prefs.load_settings()
+    profile = saved.get("profile", "openai")
+    names = ["openai", "ollama", "lmstudio", "llamacpp"]
+    self.preset_box.setCurrentIndex(
+        names.index(profile) if profile in names else 4
+    )
+    self.base_url.setText(
+        saved.get("base_url") or os.environ.get("MANGATL_BASE_URL", "")
+    )
+    self.model_name.setText(
+        saved.get("model") or os.environ.get("MANGATL_MODEL", "")
+    )
+    if os.environ.get("MANGATL_API_KEY"):
+        self.api_key.setText(os.environ["MANGATL_API_KEY"])
+    stored = secure.load_key(prefs.SECRETS_PATH) is not None
+    self.remember_box.setChecked(stored)
+    self.api_status.setText("已加密保存" if stored else "未保存 Key")
 
 
 # Attach the handler defined above (kept out of the class body to keep it readable).
 SettingsSheet._apply_api = _settings_apply_api
+SettingsSheet._apply_preset = _settings_apply_preset
+SettingsSheet._load_saved = _settings_load_saved
 
 
 def build_sheets(project: Project, engines_provider=None) -> dict[str, QWidget]:
     """Create the standard module panels (run doubles as the batch panel)."""
     from mangatl.gui.batch import BatchSheet
 
+    settings = SettingsSheet()
+    settings._load_saved()
     return {
         "editor": EditorSheet(),
         "run": BatchSheet(project, engines_provider),
-        "settings": SettingsSheet(),
+        "settings": settings,
     }

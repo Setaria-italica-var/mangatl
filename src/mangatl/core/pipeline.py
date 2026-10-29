@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from mangatl.adapters.base import Detector, Inpainter, Ocr, Translator
-from mangatl.adapters.translators.echo import EchoTranslator
+from mangatl.adapters.stubs import CopyTranslator
 from mangatl.core.config import RunConfig
 from mangatl.domain.block import TextBlock
 from mangatl.domain.merge import merge_blocks
@@ -81,7 +81,7 @@ class PipelineService:
         self.detector = detector
         self.ocr = ocr
         self.inpainter = inpainter
-        self.translator = translator or EchoTranslator()
+        self.translator = translator or CopyTranslator()
         self.renderer = renderer or PageRenderer()
         self.bubble_detector = bubble_detector
         self.ocr_judge = ocr_judge

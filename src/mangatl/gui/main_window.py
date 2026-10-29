@@ -43,7 +43,7 @@ ENGINE_OPTIONS = {
     "detector": ("ctd",),
     "ocr": ("mit_manga", "manga_ocr", "mit48px_ctc", "rapidocr"),
     "inpainter": ("masked", "lama"),
-    "translator": ("openai", "echo"),
+    "translator": ("openai", "ollama", "lmstudio", "llamacpp"),
 }
 
 
@@ -385,7 +385,7 @@ class MainWindow(QMainWindow):
             box = QComboBox()
             box.addItems(options)
             if key == "translator":
-                default = "openai" if os.environ.get("MANGATL_API_KEY") else "echo"
+                default = "openai" if os.environ.get("MANGATL_API_KEY") else "ollama"
                 box.setCurrentText(default)
             self.engine_boxes[key] = box
             bar.addWidget(box)

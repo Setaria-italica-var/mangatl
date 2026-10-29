@@ -87,3 +87,14 @@ class CopyInpainter:
         """Copy ``image_path`` to ``destination``, creating parents as needed."""
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(image_path, destination)
+
+
+class CopyTranslator:
+    """Deterministic stand-in used when the translate stage is not requested."""
+
+    name = "copy"
+
+    def translate(self, blocks, context=None):
+        for block in blocks:
+            block.translation = block.text
+        return list(blocks)

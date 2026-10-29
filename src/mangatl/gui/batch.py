@@ -400,7 +400,7 @@ class BatchSheet(QWidget):
         ):
             self._append_log(
                 "错误：翻译引擎是 openai，但 MANGATL_API_KEY 未设置。"
-                "到「设置」里填写 Key，或把底部翻译引擎改成 echo。"
+                "到「设置」里填写 Key，或把底部翻译引擎改成 ollama（本地）。"
             )
             self.heartbeat.setText("未启动：缺少 MANGATL_API_KEY")
             return

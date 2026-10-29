@@ -21,7 +21,12 @@ from pathlib import Path
 
 from mangatl.adapters.base import Inpainter, Ocr, Registry, Translator
 from mangatl.adapters.stubs import CopyInpainter, EchoOcr, GridDetector
-from mangatl.adapters.translators.echo import EchoTranslator
+from mangatl.adapters.translators.openai_compat import (
+    PROFILES,
+    LlmConfig,
+    OpenAiTranslator,
+    TranslationError,
+)
 from mangatl.core.config import STAGE_ORDER, RunConfig
 from mangatl.core.pipeline import EVENT_PAGE_DONE, EVENT_PAGE_FAILED, Event, PipelineService
 from mangatl.domain.project import Project
@@ -95,7 +100,11 @@ def default_registries() -> tuple[
         inpainters.add("lama", LamaInpainter)
 
     translators: DetectorRegistry = Registry("translator")
-    translators.add("echo", EchoTranslator)
+    for profile in PROFILES:
+        translators.add(
+            profile,
+            lambda name=profile: OpenAiTranslator(LlmConfig.from_env(name)),
+        )
     from mangatl.adapters.translators.openai_compat import OpenAiTranslator
 
     translators.add("openai", OpenAiTranslator)
@@ -160,8 +169,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="recognition language for RapidOCR (japan, ch, en, korean, ...)",
     )
     run.add_argument("--inpainter", default="copy")
-    default_translator = "openai" if os.environ.get("MANGATL_API_KEY") else "echo"
-    run.add_argument("--translator", default=default_translator)
+    default_translator = "openai" if os.environ.get("MANGATL_API_KEY") else "ollama"
+    run.add_argument(
+        "--translator",
+        default=default_translator,
+        help="openai | ollama | lmstudio | llamacpp (OpenAI-compatible)",
+    )
     run.add_argument("--source-lang", default="ja")
     run.add_argument("--target-lang", default="zh-CN")
     run.add_argument(
@@ -326,12 +339,6 @@ def _build_vision_ocr(config: RunConfig):
 
 def _run_translate_test(text: str, target: str) -> int:
     """One-shot provider check: fail with the provider's own message."""
-    from mangatl.adapters.translators.openai_compat import (
-        LlmConfig,
-        OpenAiTranslator,
-        TranslationError,
-    )
-
     config = LlmConfig.from_env()
     if not config.api_key:
         print(
@@ -760,14 +767,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         force_blocks=tuple(filter(None, (s.strip() for s in args.erase_blocks.split(",")))),
     )
 
-    if config.translator == "openai" and not os.environ.get("MANGATL_API_KEY"):
-        print(
-            "error: MANGATL_API_KEY is not set, so translator=openai cannot work.\n"
-            "hint: set the key, or run with --translator echo for a dry run.",
-            file=sys.stderr,
-        )
-        return 2
-
     detectors, ocrs, inpainters, translators = default_registries()
     if config.bubbles in ("auto", "model"):
         model_path = Path(config.bubble_model)
@@ -794,9 +793,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         bubble_detector = _build_bubble_detector(config)
         ocr_judge = _build_ocr_judge(config)
         vision_ocr = _build_vision_ocr(config)
-        translator: Translator = (
-            translators.get(config.translator)() if "translate" in enabled else EchoTranslator()
-        )
+        if "translate" in enabled:
+            # Fail before loading OCR/detector weights when the provider is unusable.
+            LlmConfig.from_env(config.translator)
+            translator: Translator = translators.get(config.translator)()
+        else:
+            from mangatl.adapters.stubs import CopyTranslator
+
+            translator = CopyTranslator()
     except Exception as exc:  # noqa: BLE001 - adapter construction is startup
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -835,13 +839,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         _emit_json({"kind": "summary", **asdict(summary)})
     else:
         print(json.dumps(asdict(summary), ensure_ascii=False))
-    if "render" in enabled and config.translator == "echo":
-        print(
-            "warning: translator=echo copies the source text, so the rendered pages "
-            "still show the original language. Set MANGATL_API_KEY and pass "
-            "--translator openai.",
-            file=sys.stderr,
-        )
     return 0 if summary.failed == 0 else 1
 
 

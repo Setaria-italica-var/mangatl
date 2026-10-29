@@ -25,7 +25,7 @@ class RunConfig:
     detector: str = "grid"
     ocr: str = "echo"
     inpainter: str = "copy"
-    translator: str = "echo"
+    translator: str = "openai"
     output_dirname: str = "inpainted"
     result_dirname: str = "result"
     force: bool = False

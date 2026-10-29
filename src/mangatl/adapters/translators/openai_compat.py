@@ -29,6 +29,15 @@ from mangatl.domain.block import TextBlock
 DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
 DEFAULT_MODEL = "deepseek-chat"
 
+# One adapter, several entry points. Local servers speak the same protocol, so the
+# only difference is the default endpoint, model and whether a key is required.
+PROFILES: dict[str, tuple[str, str, bool]] = {
+    "openai": (DEFAULT_BASE_URL, DEFAULT_MODEL, True),
+    "ollama": ("http://127.0.0.1:11434/v1", "qwen2.5:7b", False),
+    "lmstudio": ("http://127.0.0.1:1234/v1", "local-model", False),
+    "llamacpp": ("http://127.0.0.1:8080/v1", "local-model", False),
+}
+
 SYSTEM_PROMPT = (
     "You translate manga dialogue from {source} to {target}. "
     "Reply with JSON only: {{\"blocks\":[{{\"id\":<int>,\"text\":\"<translation>\"}}]}}. "
@@ -51,12 +60,19 @@ class LlmConfig:
     extra: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_env(cls) -> LlmConfig:
-        """Build a config from ``MANGATL_*`` environment variables."""
+    def from_env(cls, profile: str = "openai") -> LlmConfig:
+        """Build a config from a profile plus ``MANGATL_*`` overrides."""
+        base, model, needs_key = PROFILES.get(profile, PROFILES["openai"])
+        api_key = os.environ.get("MANGATL_API_KEY", "")
+        if needs_key and not api_key:
+            raise TranslationError(
+                "缺少 MANGATL_API_KEY：云端翻译需要 Key；本地模型可改用 ollama / "
+                "lmstudio / llamacpp 引擎。"
+            )
         return cls(
-            base_url=os.environ.get("MANGATL_BASE_URL", DEFAULT_BASE_URL),
-            api_key=os.environ.get("MANGATL_API_KEY", ""),
-            model=os.environ.get("MANGATL_MODEL", DEFAULT_MODEL),
+            base_url=os.environ.get("MANGATL_BASE_URL", base),
+            api_key=api_key,
+            model=os.environ.get("MANGATL_MODEL", model),
         )
 
 
