@@ -374,7 +374,10 @@ class MainWindow(QMainWindow):
         page = list(self.project)[index]
         self.editor = PageEditor(self.project, page)
         self.selected_id = None
+        # A selection belongs to one page: drop it (and its floating bar) when
+        # moving on, otherwise the buttons hover over the new page.
         self.region = None
+        self.canvas.clear_selection()
         self._undo.clear()
         self.canvas.show_image(self.editor.image_path)
         self.canvas.set_blocks(page.blocks)

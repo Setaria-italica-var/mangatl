@@ -79,6 +79,7 @@ class PageCanvas(QGraphicsView):
         self._handle_items.clear()
         self._preview = None
         self._selection = None
+        self._selection_points = []
         self._pixmap_item = self.scene().addPixmap(pixmap)
         self.scene().setSceneRect(QRectF(pixmap.rect()))
         self.fit()
