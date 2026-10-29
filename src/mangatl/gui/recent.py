@@ -22,7 +22,10 @@ def app_root() -> Path:
 
 
 def store_path() -> Path:
-    """Location of the recent-folders file."""
+    """Location of the recent-folders file (``MANGATL_RECENT`` overrides it)."""
+    override = os.environ.get("MANGATL_RECENT")
+    if override:
+        return Path(override)
     return app_root() / "data" / "recent.json"
 
 

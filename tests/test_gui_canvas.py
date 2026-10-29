@@ -6,6 +6,10 @@ import os
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ.setdefault(
+    "MANGATL_RECENT",
+    str(Path(__file__).resolve().parents[1] / ".tmp" / "test-recent.json"),
+)
 
 import pytest
 
