@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QGraphicsView,
 )
 
-from mangatl.gui.geometry import move_bbox, resize_bbox
+from mangatl.gui.geometry import bbox_intersects, move_bbox, resize_bbox
 
 ROLE_COLORS = {
     "dialogue": QColor(64, 158, 255, 70),
@@ -33,6 +33,8 @@ class PageCanvas(QGraphicsView):
     cursorMoved = Signal(int, int)
     blockGeometryChanged = Signal(int, tuple)
     selectionChanged = Signal(bool)
+    selectionIdsChanged = Signal(list)
+    contextMenuRequested = Signal(object)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -52,6 +54,10 @@ class PageCanvas(QGraphicsView):
         self._selected_id: int | None = None
         self._handle_items: dict[str, QGraphicsRectItem] = {}
         self._drag: dict | None = None
+        self._selected: list[int] = []
+        self._rubber: dict | None = None
+        self._rubber_item: QGraphicsRectItem | None = None
+        self._rubber_moved = False
         self._points: list[QPointF] = []
         self._panning = False
         self._pan_start = QPointF()
@@ -92,7 +98,8 @@ class PageCanvas(QGraphicsView):
             self._remove_item(item)
         self._overlay_items.clear()
         self._clear_handles()
-        self._selected_id = selected_ids[0] if selected_ids else None
+        self._selected = list(selected_ids)
+        self._selected_id = self._selected[0] if self._selected else None
         for block in blocks:
             x1, y1, x2, y2 = block.bbox
             colour = QColor(ROLE_COLORS.get(block.role, QColor(200, 200, 200, 60)))
@@ -107,7 +114,7 @@ class PageCanvas(QGraphicsView):
             item.setData(0, block.id)
             self.scene().addItem(item)
             self._overlay_items[block.id] = item
-            if block.id == self._selected_id:
+            if len(self._selected) == 1 and block.id == self._selected_id:
                 self._build_handles(block.bbox)
 
     def set_overlay_opacity(self, value: int) -> None:
@@ -144,6 +151,10 @@ class PageCanvas(QGraphicsView):
             self._update_preview()
             event.accept()
             return
+        if self._mode == "select" and event.button() == Qt.MouseButton.RightButton:
+            self._start_rubber(position, "subtract")
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.LeftButton:
             item = self.itemAt(event.position().toPoint())
             if isinstance(item, QGraphicsRectItem) and item.data(1) is not None:
@@ -168,6 +179,10 @@ class PageCanvas(QGraphicsView):
                 }
                 event.accept()
                 return
+            if self._mode == "select":
+                self._start_rubber(position, "add")
+                event.accept()
+                return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802 - Qt name
@@ -182,6 +197,9 @@ class PageCanvas(QGraphicsView):
             self.verticalScrollBar().setValue(
                 self.verticalScrollBar().value() - int(delta.y())
             )
+            return
+        if self._rubber is not None:
+            self._update_rubber(position)
             return
         if self._drag is not None:
             start = self._drag["start"]
@@ -210,6 +228,9 @@ class PageCanvas(QGraphicsView):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802 - Qt name
+        if self._rubber is not None:
+            self._finish_rubber(event)
+            return
         if event.button() == Qt.MouseButton.MiddleButton and self._panning:
             self._panning = False
             return
@@ -242,6 +263,68 @@ class PageCanvas(QGraphicsView):
             self._points = []
             return
         super().mouseReleaseEvent(event)
+
+    # -- rubber-band multi select ----------------------------------------
+    def _start_rubber(self, position: QPointF, mode: str) -> None:
+        self._rubber = {"start": position, "mode": mode}
+        self._rubber_moved = False
+        self._clear_rubber_item()
+
+    def _update_rubber(self, position: QPointF) -> None:
+        if self._rubber is None:
+            return
+        start = self._rubber["start"]
+        rect = QRectF(start, position).normalized()
+        self._rubber_moved = rect.width() > 3 or rect.height() > 3
+        self._clear_rubber_item()
+        item = QGraphicsRectItem(rect)
+        pen = QPen(QColor(120, 220, 255), 1.6, Qt.PenStyle.DashLine)
+        if self._rubber["mode"] == "subtract":
+            pen = QPen(QColor(255, 160, 120), 1.6, Qt.PenStyle.DashLine)
+        item.setPen(pen)
+        item.setBrush(QBrush(QColor(120, 220, 255, 18)))
+        item.setZValue(11)
+        self.scene().addItem(item)
+        self._rubber_item = item
+
+    def _finish_rubber(self, event) -> None:
+        rubber = self._rubber or {}
+        start = rubber.get("start", QPointF())
+        moved = self._rubber_moved
+        mode = rubber.get("mode", "add")
+        rectangle = QRectF(start, self.mapToScene(event.position().toPoint())).normalized()
+        self._rubber = None
+        self._clear_rubber_item()
+        if not moved:
+            if event.button() == Qt.MouseButton.RightButton:
+                self.contextMenuRequested.emit(event.globalPosition().toPoint())
+            return
+        box = (
+            int(rectangle.x()),
+            int(rectangle.y()),
+            int(rectangle.right()),
+            int(rectangle.bottom()),
+        )
+        hits = [
+            block_id
+            for block_id, item in self._overlay_items.items()
+            if bbox_intersects(self._rect_of(block_id), box)
+        ]
+        if mode == "subtract":
+            selected = [block_id for block_id in self._selected if block_id not in hits]
+        else:
+            selected = list(dict.fromkeys([*self._selected, *hits]))
+        self.select_ids(selected)
+
+    def _clear_rubber_item(self) -> None:
+        if self._rubber_item is not None:
+            self._remove_item(self._rubber_item)
+            self._rubber_item = None
+
+    def select_ids(self, ids: list[int]) -> None:
+        """Highlight the given blocks and notify the window."""
+        self._selected = list(dict.fromkeys(ids))
+        self.selectionIdsChanged.emit(list(self._selected))
 
     # -- preview ----------------------------------------------------------
     def _update_preview(self) -> None:
@@ -297,6 +380,10 @@ class PageCanvas(QGraphicsView):
         if self._selection is not None:
             self._remove_item(self._selection)
             self._selection = None
+
+    @property
+    def selection_points(self) -> list[tuple[float, float]]:
+        return list(self._selection_points)
 
     def selection_bbox(self) -> tuple[int, int, int, int] | None:
         if not self._selection_points:

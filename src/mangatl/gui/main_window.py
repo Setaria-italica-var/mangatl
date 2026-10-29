@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QSlider,
     QStackedWidget,
@@ -59,6 +60,7 @@ class MainWindow(QMainWindow):
         self.page_index = 0
         self.editor: PageEditor | None = None
         self.selected_id: int | None = None
+        self.selected_ids: list[int] = []
         self.region: list[tuple[float, float]] | None = None
         self._undo: list[list[dict]] = []
 
@@ -160,6 +162,8 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.canvas)
         self._build_selection_bar()
         self.canvas.selectionChanged.connect(self._on_selection_changed)
+        self.canvas.selectionIdsChanged.connect(self.on_selection_ids)
+        self.canvas.contextMenuRequested.connect(self.on_canvas_menu)
 
     def _build_selection_bar(self) -> None:
         """Floating actions shown right next to a lasso/rectangle selection."""
@@ -479,8 +483,95 @@ class MainWindow(QMainWindow):
         if block is None:
             return
         self.selected_id = block_id
+        self.selected_ids = [block_id]
         self.sheets["editor"].show_block(block)
         self.canvas.set_blocks(self.editor.page.blocks, [block_id])
+
+    def on_selection_ids(self, ids: list[int]) -> None:
+        """Highlight blocks picked with the rubber band."""
+        if self.editor is None:
+            return
+        self.selected_ids = list(ids)
+        self.selected_id = ids[0] if ids else None
+        blocks = self.editor.page.blocks
+        if len(ids) == 1:
+            block = next((b for b in blocks if b.id == ids[0]), None)
+            self.sheets["editor"].show_block(block)
+        elif ids:
+            self.sheets["editor"].show_block(None)
+            self.sheets["editor"].info.setText(f"已选 {len(ids)} 个文本块")
+        self.canvas.set_blocks(blocks, ids)
+        if ids:
+            self.statusBar().showMessage(f"已选 {len(ids)} 块（右键打开菜单）")
+
+    def _region_points(self) -> list[tuple[float, float]]:
+        """Selection polygon, else the union box of the selected blocks."""
+        points = self.canvas.selection_points
+        if points:
+            return points
+        page_blocks = self.editor.page.blocks if self.editor else []
+        blocks = [b for b in page_blocks if b.id in self.selected_ids]
+        if not blocks:
+            return list(self.region or [])
+        x1 = min(b.bbox[0] for b in blocks)
+        y1 = min(b.bbox[1] for b in blocks)
+        x2 = max(b.bbox[2] for b in blocks)
+        y2 = max(b.bbox[3] for b in blocks)
+        return [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
+
+    def on_canvas_menu(self, global_pos) -> None:
+        """Show the selection menu at the cursor."""
+        menu = self.build_canvas_menu()
+        if menu is not None:
+            menu.exec(global_pos)
+
+    def build_canvas_menu(self) -> QMenu | None:
+        """Menu for the current selection (separate for testability)."""
+        if self.editor is None:
+            return None
+        menu = QMenu(self)
+        count = len(self.selected_ids)
+        menu.addAction(f"删除所选（{count}）", self.delete_selected) if count else None
+        if count:
+            menu.addAction("重新识别所选", self.reocr_block)
+            menu.addAction("翻译所选", self.translate_block)
+        menu.addAction("排版本页", self.rerender)
+        menu.addSeparator()
+        menu.addAction("重新检测选区", self.redetect_region)
+        menu.addAction("重绘选区（重新擦除）", self.erase_region)
+        menu.addAction("恢复选区至原图", self.restore_selected_region)
+        menu.addSeparator()
+        menu.addAction("取消选择", self._cancel_selection)
+        return menu
+
+    def delete_selected(self) -> None:
+        if self.editor is None or not self.selected_ids:
+            return
+        targets = [b for b in self.editor.page.blocks if b.id in self.selected_ids]
+        if not targets:
+            return
+        self._snapshot()
+        self.editor.remove_blocks(targets)
+        self.selected_ids = []
+        self.selected_id = None
+        self.canvas.set_blocks(self.editor.page.blocks)
+        self.sheets["editor"].show_block(None)
+        self._touch_page()
+        self.statusBar().showMessage(f"已删除 {len(targets)} 个块")
+
+    def restore_selected_region(self) -> None:
+        if self.editor is None:
+            return
+        points = self._region_points()
+        if len(points) < 3:
+            InfoBar.info("需要选区", "先框选一块区域，或选中若干文本块", parent=self)
+            return
+        self._snapshot()
+        path = self.editor.restore_region(points)
+        self.canvas.show_image(path)
+        self.canvas.set_blocks(self.editor.page.blocks, self.selected_ids)
+        self._touch_page()
+        self.statusBar().showMessage("已把选区内恢复为原图")
 
     def _selected(self):
         if self.editor is None or self.selected_id is None:

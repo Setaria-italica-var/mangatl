@@ -20,7 +20,7 @@ from mangatl.core.pipeline import _image_size, assign_roles, block_area_fraction
 from mangatl.domain.block import TextBlock
 from mangatl.domain.project import Page, Project
 from mangatl.domain.roles import BlockRole, RoleConfig, classify
-from mangatl.gui.geometry import bbox_intersects, clamp_bbox, polygon_bbox
+from mangatl.gui.geometry import bbox_intersects, clamp_bbox, polygon_bbox, polygon_mask
 from mangatl.render.renderer import PageRenderer
 
 
@@ -166,6 +166,31 @@ class PageEditor:
         scratch = TextBlock(id=0, bbox=(x1, y1, x2, y2))
         destination = self.erased_path
         self.inpainter.erase(self.image_path, destination, [scratch], mask=trimmed)
+        self.page.mark("erase")
+        self.project.save()
+        return destination
+
+    def restore_region(self, points: Sequence[tuple[float, float]]) -> Path:
+        """Put the original pixels back inside a region.
+
+        Useful after an over-eager erase: the artwork under the region comes from
+        the untouched page image, while the rest of ``inpainted/`` is kept.
+        """
+        width, height = self._size()
+        mask = polygon_mask(points, width, height)
+        with Image.open(self.image_path) as handle:
+            source = handle.convert("RGB")
+        destination = self.erased_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.is_file():
+            with Image.open(destination) as handle:
+                target = handle.convert("RGB")
+        else:
+            target = source.copy()
+        target.paste(source, mask=mask)
+        temp = destination.with_name(destination.stem + ".tmp" + destination.suffix)
+        target.save(temp)
+        temp.replace(destination)
         self.page.mark("erase")
         self.project.save()
         return destination
