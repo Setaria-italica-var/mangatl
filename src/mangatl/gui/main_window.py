@@ -65,6 +65,7 @@ class MainWindow(QMainWindow):
         self.editor: PageEditor | None = None
         self.selected_id: int | None = None
         self.selected_ids: list[int] = []
+        self.view_mode = "source"
         self.region: list[tuple[float, float]] | None = None
         self._undo: list[list[dict]] = []
 
@@ -85,6 +86,9 @@ class MainWindow(QMainWindow):
     def _install_shortcuts(self) -> None:
         """Global keys: Home/F fit, Esc cancels, R rotate, F11 full screen."""
         for keys, slot in (
+            ("Ctrl+1", lambda: self.show_view("source")),
+            ("Ctrl+2", lambda: self.show_view("erased")),
+            ("Ctrl+3", lambda: self.show_view("result")),
             ("Home", self.canvas.fit),
             ("F", self.canvas.fit),
             ("Esc", self._cancel_selection),
@@ -129,6 +133,21 @@ class MainWindow(QMainWindow):
         )
         self.btn_select.setChecked(True)
         for button in (self.btn_select, self.btn_lasso, self.btn_rect):
+            bar.addWidget(button)
+        bar.addSeparator()
+
+        # preview mode
+        self.btn_view_source = self._tool_button(
+            FIF.PHOTO, "原图 (Ctrl+1)", lambda: self.show_view("source"), True
+        )
+        self.btn_view_erased = self._tool_button(
+            FIF.BRUSH, "擦除后 (Ctrl+2)", lambda: self.show_view("erased"), True
+        )
+        self.btn_view_result = self._tool_button(
+            FIF.VIEW, "排版结果 (Ctrl+3)", lambda: self.show_view("result"), True
+        )
+        self.btn_view_source.setChecked(True)
+        for button in (self.btn_view_source, self.btn_view_erased, self.btn_view_result):
             bar.addWidget(button)
         bar.addSeparator()
 
@@ -401,6 +420,7 @@ class MainWindow(QMainWindow):
         self._undo.clear()
         self.canvas.show_image(self.editor.image_path)
         self.canvas.set_blocks(page.blocks)
+        self.show_view(self.view_mode, quiet=True)
         # The viewport is not laid out yet during construction; fit once Qt has
         # given the canvas its real size, otherwise the page opens tiny.
         QTimer.singleShot(0, self.canvas.fit)
@@ -476,6 +496,7 @@ class MainWindow(QMainWindow):
         self.sheets["run"].append(
             f"{page.name}: 成功 {summary.ok} 失败 {summary.failed} 块 {summary.blocks}"
         )
+        self.view_mode = "result"
         self.refresh_pages()
         self.load_page(index)
         self.statusBar().showMessage(
@@ -718,6 +739,7 @@ class MainWindow(QMainWindow):
         if self.editor is None:
             return
         path = self.editor.rerender()
+        self.view_mode = "result"
         self.canvas.show_image(path)
         self.canvas.set_blocks(self.editor.page.blocks)
         self._touch_page()
@@ -765,6 +787,7 @@ class MainWindow(QMainWindow):
             return
         self._snapshot()
         path = self.editor.erase_region(self.region or [])
+        self.view_mode = "erased"
         self.canvas.show_image(path)
         self.canvas.set_blocks(self.editor.page.blocks)
         self._touch_page()
@@ -803,6 +826,7 @@ class MainWindow(QMainWindow):
             f"完成：成功 {summary.ok}，失败 {summary.failed}，"
             f"跳过 {summary.skipped}，块 {summary.blocks}"
         )
+        self.view_mode = "result"
         self.refresh_pages()
         self.load_page(self.page_index)
 
@@ -811,6 +835,29 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"强调色已切换为 {colour}")
 
     # -- misc -------------------------------------------------------------
+    def show_view(self, mode: str, quiet: bool = False) -> None:
+        """Display the original, the erased page or the typeset result."""
+        if self.editor is None:
+            return
+        missing = {
+            "erased": (self.editor.erased_path, "还没有擦除图", "先运行本页或做一次区域擦除"),
+            "result": (self.editor.result_path, "还没有结果图", "点「运行本页」生成结果"),
+        }.get(mode)
+        if missing is not None and not missing[0].is_file():
+            if not quiet:
+                InfoBar.info(missing[1], missing[2], parent=self)
+            mode = "source"
+        self.view_mode = mode
+        path = self.editor.view_path(mode)
+        if path is not None:
+            self.canvas.show_image(path)
+            self.canvas.set_blocks(self.editor.page.blocks, self.selected_ids)
+        self.btn_view_source.setChecked(mode == "source")
+        self.btn_view_erased.setChecked(mode == "erased")
+        self.btn_view_result.setChecked(mode == "result")
+        labels = {"source": "原图", "erased": "擦除后", "result": "排版结果"}
+        self.statusBar().showMessage(f"预览：{labels.get(mode, mode)}")
+
     def open_folder_dialog(self) -> None:
         """Switch to another manga folder."""
         from PySide6.QtWidgets import QFileDialog

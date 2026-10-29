@@ -47,6 +47,20 @@ class PageEditor:
     def result_path(self) -> Path:
         return self.project.directory / "result" / self.page.name
 
+    def view_path(self, mode: str) -> Path | None:
+        """File to display for a view mode: ``source``, ``erased`` or ``result``.
+
+        Falls back to earlier stages so the view never goes blank.
+
+        >>> PageEditor(Project.open("x"), Page(name="p")).view_path("source").name
+        'p'
+        """
+        if mode == "result" and self.result_path.is_file():
+            return self.result_path
+        if mode == "erased" and self.erased_path.is_file():
+            return self.erased_path
+        return self.image_path
+
     # -- block editing ----------------------------------------------------
     def blocks_in(self, region: tuple[int, int, int, int]) -> list[TextBlock]:
         """Blocks intersecting a region box."""
