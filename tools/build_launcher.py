@@ -24,12 +24,20 @@ def main() -> int:
         print(f"missing {entry}")
         return 1
 
+    onedir = "--onedir" in sys.argv
+    name = f"{NAME}-folder" if onedir else NAME
+
     dist = ROOT / "dist"
     build = ROOT / "build"
-    for folder in (dist, build):
-        shutil.rmtree(folder, ignore_errors=True)
+    dist.mkdir(exist_ok=True)
+    shutil.rmtree(build, ignore_errors=True)
+    # Only clear this build's own artifacts: the other variant may live beside it.
+    for stale in (dist / f"{name}.exe", dist / name):
+        if stale.is_dir():
+            shutil.rmtree(stale, ignore_errors=True)
+        elif stale.exists():
+            stale.unlink()
 
-    onedir = "--onedir" in sys.argv
     command = [
         sys.executable,
         "-m",
@@ -39,7 +47,7 @@ def main() -> int:
         "--onedir" if onedir else "--onefile",
         "--console",
         "--name",
-        NAME,
+        name,
         "--distpath",
         str(dist),
         "--workpath",
@@ -53,9 +61,9 @@ def main() -> int:
     if completed.returncode != 0:
         return completed.returncode
 
-    exe = dist / f"{NAME}.exe"
+    exe = dist / f"{name}.exe"
     if not exe.is_file():
-        exe = dist / NAME / f"{NAME}.exe"
+        exe = dist / name / f"{name}.exe"
     if not exe.is_file():
         print("\nbuild finished but the exe was not found")
         return 1

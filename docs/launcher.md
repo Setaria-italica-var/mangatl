@@ -33,8 +33,10 @@ launch.bat
 
 ```bat
 python tools/build_launcher.py            :: 单文件 dist\mangatl-launcher.exe（约 8 MB）
-python tools/build_launcher.py --onedir   :: 目录版 dist\mangatl-launcher\
+python tools/build_launcher.py --onedir   :: 目录版 dist\mangatl-launcher-folder\
 ```
+
+两个可以同时存在；目录版启动更快、不需要写系统临时目录。
 
 单文件版运行时会解压到系统临时目录；如果公司策略禁止写临时目录，用目录版。
 
@@ -73,7 +75,7 @@ mangatl-launcher.exe
 ## 模型下载
 
 - 必需模型缺失时启动器会自动调用 `fetch-models`
-- 可选 LaMa 局部重绘权重（约 208 MB，支持断点续传）：
+- 可选 LaMa 局部重绘权重（约 208 MB，支持断点续传，下载的是推荐的 fp32 opset17 版本）：
 
 ```bat
 python -m mangatl fetch-models --lama

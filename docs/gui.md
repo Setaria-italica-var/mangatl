@@ -70,6 +70,7 @@ python -m mangatl gui samples\vol1
 - 平坦背景（气泡内部）取周围中值色填充
 - 复杂背景用 OpenCV content-aware（`INPAINT_TELEA`）重建
 - 若存在 `data/models/lama.onnx`，优先用 **LaMa** 做纹理级重建，效果接近 PS 内容识别填充
+  （首次调用要加载 208 MB 权重，约 20 秒；之后每次约 2 秒）
 
 ```
 python -m mangatl fetch-models --lama      # 下载 LaMa 权重（约 208MB，可断点续传）

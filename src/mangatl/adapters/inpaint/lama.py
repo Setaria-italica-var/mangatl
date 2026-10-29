@@ -144,10 +144,36 @@ class LamaInpainter:
         stride = max(1, size // 2)
         result = pixels.copy()
 
-        top = max(0, top - size // 4)
-        left = max(0, left - size // 4)
-        bottom = min(height, bottom + size // 4)
-        right = min(width, right + size // 4)
+        margin = size // 4
+        top = max(0, top - margin)
+        left = max(0, left - margin)
+        bottom = min(height, bottom + margin)
+        right = min(width, right + margin)
+        if right - left <= size and bottom - top <= size:
+            # One 512 tile covers the whole selection: do not pay for overlaps.
+            y0 = max(0, min(top, height - size))
+            x0 = max(0, min(left, width - size))
+            tile_image, tile_mask = self._pad_tile(
+                pixels[y0 : y0 + size, x0 : x0 + size],
+                erase[y0 : y0 + size, x0 : x0 + size],
+                size,
+            )
+            tensor = tile_image.transpose(2, 0, 1)[None].astype(np.float32) / 255.0
+            mask_tensor = tile_mask[None, None].astype(np.float32)
+            outputs = session.run(
+                None,
+                {
+                    session.get_inputs()[0].name: tensor,
+                    session.get_inputs()[1].name: mask_tensor,
+                },
+            )
+            filled = self._to_pixels(outputs[0], size, size)
+            h = min(size, height - y0)
+            w = min(size, width - x0)
+            result[y0 : y0 + h, x0 : x0 + w][tile_mask[:h, :w]] = filled[:h, :w][
+                tile_mask[:h, :w]
+            ]
+            return result
         for y0 in range(top, max(top + 1, bottom), stride):
             for x0 in range(left, max(left + 1, right), stride):
                 tile_image = pixels[y0 : y0 + size, x0 : x0 + size]

@@ -32,9 +32,9 @@
       "urls": [
         "https://hf-mirror.com/Carve/LaMa-ONNX"
       ],
-      "sha256": "",
-      "size": 0,
-      "note": "optional; without it the masked filler is used"
+      "sha256": "1faef5301d78db7dda502fe59966957ec4b79dd64e16f03ed96913c7a4eb68d6",
+      "size": 208044816,
+      "note": "opset 17 fp32 export; 512x512 fixed input, tiled by the adapter"
     }
   ]
 }
