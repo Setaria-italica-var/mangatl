@@ -115,6 +115,12 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--detector", default="grid")
     run.add_argument("--ocr", default="echo")
     run.add_argument(
+        "--verify-ocr",
+        choices=("auto", "off"),
+        default="auto",
+        help="ask the configured LLM to pick between disagreeing OCR engines",
+    )
+    run.add_argument(
         "--ocr-lang",
         default="japan",
         help="recognition language for RapidOCR (japan, ch, en, korean, ...)",
@@ -221,6 +227,17 @@ def _build_bubble_detector(config: RunConfig):
             "hint: download it as described in docs/bubble-and-inpaint-plan.md"
         )
     return detector
+
+
+def _build_ocr_judge(config: RunConfig):
+    """LLM judge for OCR disagreements, only when a provider is configured."""
+    if not config.verify_ocr:
+        return None
+    from mangatl.adapters.ocr.judge import LlmJudge
+    from mangatl.adapters.translators.openai_compat import LlmConfig
+
+    judge = LlmJudge(LlmConfig.from_env())
+    return judge if judge.available else None
 
 
 def _run_translate_test(text: str, target: str) -> int:
@@ -460,6 +477,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         erase_background=args.erase_background,
         erase_scope="all" if args.bubbles == "off" else args.erase_scope,
         bubbles=args.bubbles,
+        verify_ocr=args.verify_ocr != "off",
         bubble_model=args.bubble_model,
         page_scopes=tuple(args.page_scope),
         keep_blocks=tuple(filter(None, (s.strip() for s in args.keep_blocks.split(",")))),
@@ -487,6 +505,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             inpainters.get(config.inpainter)() if "erase" in enabled else CopyInpainter()
         )
         bubble_detector = _build_bubble_detector(config)
+        ocr_judge = _build_ocr_judge(config)
         translator: Translator = (
             translators.get(config.translator)() if "translate" in enabled else EchoTranslator()
         )
@@ -511,6 +530,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         inpainter,
         translator=translator,
         bubble_detector=bubble_detector,
+        ocr_judge=ocr_judge,
         on_event=_print_event,
     )
     summary = service.run(config)

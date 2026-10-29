@@ -51,6 +51,9 @@ class HybridOcr:
     def recognize(self, image_path: Path, blocks: Sequence[TextBlock]) -> list[TextBlock]:
         """Fill block text, preferring whichever engine reads more."""
         self.primary.recognize(image_path, blocks)
+        for block in blocks:
+            if block.text.strip():
+                block.ocr_candidates = [(self.primary.name, block.text.strip())]
         suspects = [block for block in blocks if weak(block.text)]
         if not suspects:
             return list(blocks)
@@ -66,6 +69,10 @@ class HybridOcr:
             fallback_text = block.text
             if plausibility(fallback_text) < plausibility(primary_text):
                 block.text = primary_text
+            candidates = [(self.primary.name, primary_text.strip())]
+            if fallback_text.strip() and fallback_text.strip() != primary_text.strip():
+                candidates.append((self.fallback.name, fallback_text.strip()))
+            block.ocr_candidates = candidates
             if plausibility(block.text) < 0.5:
                 block.needs_review = True
             if not block.text.strip():

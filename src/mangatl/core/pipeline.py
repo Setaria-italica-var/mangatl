@@ -72,6 +72,7 @@ class PipelineService:
         translator: Translator | None = None,
         renderer: PageRenderer | None = None,
         bubble_detector=None,
+        ocr_judge=None,
         on_event: EventFn | None = None,
     ) -> None:
         self.project = project
@@ -81,6 +82,7 @@ class PipelineService:
         self.translator = translator or EchoTranslator()
         self.renderer = renderer or PageRenderer()
         self.bubble_detector = bubble_detector
+        self.ocr_judge = ocr_judge
         self.on_event = on_event
 
     def run(self, config: RunConfig) -> RunSummary:
@@ -130,6 +132,8 @@ class PipelineService:
                     if not block.ocr_source:
                         block.ocr_source = getattr(self.ocr, "name", "")
                     block.ocr_score = plausibility(block.text) if block.text.strip() else 0.0
+                if config.verify_ocr:
+                    self._verify_ocr(page)
                 assign_roles(page, config)
             elif stage == "translate":
                 ensure_mask(page, image_path, self.detector)
@@ -188,6 +192,35 @@ class PipelineService:
             ran_any = True
             self._emit(EVENT_STAGE_DONE, page.name, stage)
         return ran_any
+
+    def _verify_ocr(self, page: Page) -> None:
+        """Ask the judge to pick between disagreeing engines.
+
+        A low score never removes a block: bubble text must still be translated.
+        The judge only replaces the chosen text, and keeps ``needs_review`` set
+        when it is not confident.
+        """
+        if self.ocr_judge is None or not getattr(self.ocr_judge, "available", False):
+            return
+        suspects = [
+            block
+            for block in page.blocks
+            if len(block.ocr_candidates) >= 2 and block.ocr_score < 0.7
+        ]
+        if not suspects:
+            return
+        others = [block.text for block in page.blocks if block.text.strip()][:6]
+        items = [(block.id, block.ocr_candidates) for block in suspects]
+        picks = self.ocr_judge.choose_many(items, context=others)
+        for block in suspects:
+            choice, confidence = picks.get(block.id, (-1, 0.0))
+            if 0 <= choice < len(block.ocr_candidates):
+                source, text = block.ocr_candidates[choice]
+                block.text = text
+                block.ocr_source = source
+                block.ocr_score = plausibility(text)
+            if choice < 0 or confidence < 0.5 or block.ocr_score < 0.45:
+                block.needs_review = True
 
     def _emit(self, kind: str, page: str, detail: str = "") -> None:
         if self.on_event is not None:

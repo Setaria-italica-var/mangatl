@@ -34,6 +34,10 @@ class TextBlock:
     bubble_bbox: tuple[int, int, int, int] | None = None
     ocr_score: float = 0.0
     ocr_source: str = ""
+    # Transient: every engine's reading for this block, used by the LLM judge.
+    ocr_candidates: list[tuple[str, str]] = field(
+        default_factory=list, repr=False, compare=False
+    )
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-ready mapping."""
