@@ -72,12 +72,18 @@ class PageCanvas(QGraphicsView):
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
 
     # -- content ----------------------------------------------------------
-    def show_image(self, path) -> None:
-        """Load the page image and reset the view."""
+    def show_image(self, path, keep_selection: bool = False) -> None:
+        """Load the page image and reset the view.
+
+        ``keep_selection`` keeps the lasso/rectangle alive when only the preview
+        layer changes (original → erased → result), so the user does not lose the
+        region while comparing.
+        """
         pixmap = QPixmap(str(path))
         if pixmap.isNull():
             # Never clear the view for an unreadable file: keep the previous page.
             return
+        kept_points = list(self._selection_points) if keep_selection else []
         self.scene().clear()
         # scene().clear() deletes the C++ items; drop the Python wrappers too, or
         # later removals raise "Internal C++ object already deleted".
@@ -86,6 +92,8 @@ class PageCanvas(QGraphicsView):
         self._preview = None
         self._selection = None
         self._selection_points = []
+        if kept_points:
+            self._show_selection(kept_points)
         self._pixmap_item = self.scene().addPixmap(pixmap)
         self.scene().setSceneRect(QRectF(pixmap.rect()))
         self.fit()

@@ -402,7 +402,7 @@ class MainWindow(QMainWindow):
         self.sheets["editor"].show_page(page)
         self.sheets["blocks"].show_page(page)
 
-    def load_page(self, index: int) -> None:
+    def load_page(self, index: int, keep_selection: bool = False) -> None:
         if not len(self.project):
             return
         index = max(0, min(index, len(self.project) - 1))
@@ -413,13 +413,14 @@ class MainWindow(QMainWindow):
         page = list(self.project)[index]
         self.editor = PageEditor(self.project, page)
         self.selected_id = None
-        # A selection belongs to one page: drop it (and its floating bar) when
-        # moving on, otherwise the buttons hover over the new page.
-        self.region = None
-        self.canvas.clear_selection()
+        if not keep_selection:
+            # A selection belongs to one page: drop it (and its floating bar) when
+            # moving on, otherwise the buttons hover over the new page.
+            self.region = None
+            self.canvas.clear_selection()
         self._undo.clear()
-        self.canvas.show_image(self.editor.image_path)
-        self.canvas.set_blocks(page.blocks)
+        self.canvas.show_image(self.editor.image_path, keep_selection=keep_selection)
+        self.canvas.set_blocks(page.blocks, self.selected_ids if keep_selection else ())
         self.show_view(self.view_mode, quiet=True)
         # The viewport is not laid out yet during construction; fit once Qt has
         # given the canvas its real size, otherwise the page opens tiny.
@@ -498,7 +499,7 @@ class MainWindow(QMainWindow):
         )
         self.view_mode = "result"
         self.refresh_pages()
-        self.load_page(index)
+        self.load_page(index, keep_selection=True)
         self.statusBar().showMessage(
             f"{page.name}: 成功 {summary.ok}，失败 {summary.failed}，块 {summary.blocks}"
         )
@@ -740,7 +741,7 @@ class MainWindow(QMainWindow):
             return
         path = self.editor.rerender()
         self.view_mode = "result"
-        self.canvas.show_image(path)
+        self.canvas.show_image(path, keep_selection=True)
         self.canvas.set_blocks(self.editor.page.blocks)
         self._touch_page()
         self.statusBar().showMessage(f"已排版 -> {path}")
@@ -828,7 +829,7 @@ class MainWindow(QMainWindow):
         )
         self.view_mode = "result"
         self.refresh_pages()
-        self.load_page(self.page_index)
+        self.load_page(self.page_index, keep_selection=True)
 
     def on_accent(self, colour: str) -> None:
         set_accent(colour)
@@ -850,7 +851,7 @@ class MainWindow(QMainWindow):
         self.view_mode = mode
         path = self.editor.view_path(mode)
         if path is not None:
-            self.canvas.show_image(path)
+            self.canvas.show_image(path, keep_selection=True)
             self.canvas.set_blocks(self.editor.page.blocks, self.selected_ids)
         self.btn_view_source.setChecked(mode == "source")
         self.btn_view_erased.setChecked(mode == "erased")
