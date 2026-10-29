@@ -23,5 +23,5 @@ def run(project_dir: Path | str) -> int:
     application = QApplication.instance() or QApplication(sys.argv[:1])
     init_fluent(application)
     window = MainWindow(Path(project_dir))
-    window.show()
+    window.showMaximized()
     return application.exec()

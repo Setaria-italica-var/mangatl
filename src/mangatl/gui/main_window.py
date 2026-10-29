@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QComboBox,
     QDockWidget,
@@ -124,12 +124,16 @@ class MainWindow(QMainWindow):
                 FIF.PLAY, "运行本页", lambda: self.run_page(self.page_index)
             )
         )
+        bar.addWidget(
+            self._tool_button(FIF.FULL_SCREEN, "全屏 (F11)", self.toggle_fullscreen)
+        )
         bar.addWidget(self._tool_button(FIF.SAVE, "保存", self.save))
         bar.addWidget(self._tool_button(FIF.RETURN, "撤销", self.undo))
 
     # -- canvas / sidebar -------------------------------------------------
     def _build_central(self) -> None:
         self.canvas = PageCanvas(self)
+        self.canvas.setMinimumWidth(420)
         self.canvas.blockClicked.connect(self.select_block)
         self.canvas.lassoFinished.connect(self.on_lasso)
         self.canvas.rectFinished.connect(self.on_rect)
@@ -145,7 +149,8 @@ class MainWindow(QMainWindow):
         self.page_list.pageSelected.connect(self.load_page)
         self.page_list.pageAction.connect(self.on_page_action)
         dock.setWidget(self.page_list)
-        dock.setMinimumWidth(200)
+        dock.setMinimumWidth(190)
+        dock.setMaximumWidth(250)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, dock)
 
     # -- right module rail ------------------------------------------------
@@ -181,7 +186,8 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.stack, 1)
 
         dock.setWidget(container)
-        dock.setMinimumWidth(360)
+        dock.setMinimumWidth(350)
+        dock.setMaximumWidth(430)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
         self.module_dock = dock
 
@@ -242,6 +248,23 @@ class MainWindow(QMainWindow):
         self.opacity_slider.valueChanged.connect(self.canvas.set_overlay_opacity)
         bar.addWidget(self.opacity_slider)
 
+    def showEvent(self, event) -> None:  # noqa: N802 - Qt name
+        super().showEvent(event)
+        self._pending_fit = True
+        QTimer.singleShot(0, self._fit_once)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt name
+        super().resizeEvent(event)
+        if getattr(self, "_pending_fit", False):
+            self._fit_once()
+
+    def _fit_once(self) -> None:
+        """Fit the page once the window has its final size."""
+        if not getattr(self, "_pending_fit", False):
+            return
+        self._pending_fit = False
+        self.canvas.fit()
+
     # -- pages ------------------------------------------------------------
     def refresh_pages(self) -> None:
         pages = list(self.project)
@@ -270,6 +293,9 @@ class MainWindow(QMainWindow):
         self._undo.clear()
         self.canvas.show_image(self.editor.image_path)
         self.canvas.set_blocks(page.blocks)
+        # The viewport is not laid out yet during construction; fit once Qt has
+        # given the canvas its real size, otherwise the page opens tiny.
+        QTimer.singleShot(0, self.canvas.fit)
         self.sheets["editor"].show_block(None)
         self._refresh_sheets()
         self.statusBar().showMessage(f"已加载 {page.name}")
@@ -567,6 +593,20 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"强调色已切换为 {colour}")
 
     # -- misc -------------------------------------------------------------
+    def toggle_fullscreen(self) -> None:
+        """Switch between maximised and true full screen."""
+        if self.isFullScreen():
+            self.showMaximized()
+        else:
+            self.showFullScreen()
+        QTimer.singleShot(50, self.canvas.fit)
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802 - Qt name
+        if event.key() == Qt.Key.Key_F11:
+            self.toggle_fullscreen()
+            return
+        super().keyPressEvent(event)
+
     def _set_mode(self, mode: str) -> None:
         self.canvas.set_mode(mode)
         self.btn_select.setChecked(mode == "select")
