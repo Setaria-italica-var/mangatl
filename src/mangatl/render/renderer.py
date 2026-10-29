@@ -107,6 +107,10 @@ class PageRenderer:
         text_width = max(1, width - 2 * stroke)
         text_height = max(1, height - 2 * stroke)
         if block.vertical:
+            # "line spacing" means column pitch when writing vertically.
+            column_spacing = float(
+                (block.style or {}).get("line_spacing") or self.config.column_spacing
+            )
             layout = fit_vertical(
                 text,
                 text_width,
@@ -114,7 +118,7 @@ class PageRenderer:
                 font_ref,
                 start,
                 min_size=floor,
-                column_spacing=self.config.column_spacing,
+                column_spacing=column_spacing,
             )
         else:
             spacing = float(
@@ -180,6 +184,10 @@ class PageRenderer:
         text_width = max(1, width - 2 * self._stroke(style, start))
         text_height = max(1, height - 2 * self._stroke(style, start))
         if block.vertical:
+            # "line spacing" means column pitch when writing vertically.
+            column_spacing = float(
+                (block.style or {}).get("line_spacing") or self.config.column_spacing
+            )
             layout = fit_vertical(
                 text,
                 text_width,
@@ -187,7 +195,7 @@ class PageRenderer:
                 font_ref,
                 start,
                 min_size=floor,
-                column_spacing=self.config.column_spacing,
+                column_spacing=column_spacing,
             )
             self._draw_vertical(target_draw, target, block, layout, style, font_ref, box)
         else:
