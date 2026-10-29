@@ -18,11 +18,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QProcess, QTimer
+from PySide6.QtCore import QProcess, Qt, QTimer
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QProgressBar,
+    QSpinBox,
     QTableWidgetItem,
     QTextEdit,
     QVBoxLayout,
@@ -34,7 +35,6 @@ from qfluentwidgets import (
     CheckBox,
     PrimaryPushButton,
     PushButton,
-    SpinBox,
     TableWidget,
 )
 from qfluentwidgets import (
@@ -146,10 +146,13 @@ class BatchSheet(QWidget):
 
         row_range = QHBoxLayout()
         row_range.addWidget(BodyLabel("页码范围"))
-        self.start_box = SpinBox()
-        self.end_box = SpinBox()
+        self.start_box = QSpinBox()
+        self.end_box = QSpinBox()
         for box in (self.start_box, self.end_box):
             box.setRange(1, 9999)
+            box.setMinimumWidth(88)
+            box.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            box.valueChanged.connect(self._range_edited)
             row_range.addWidget(box)
         row_range.addWidget(CaptionLabel("到"))
         row_range.addStretch(1)
@@ -177,7 +180,7 @@ class BatchSheet(QWidget):
         self.force_box = CheckBox("强制重跑")
         row_options.addWidget(self.force_box)
         row_options.addWidget(CaptionLabel("卡住阈值"))
-        self.threshold_box = SpinBox()
+        self.threshold_box = QSpinBox()
         self.threshold_box.setRange(10, 900)
         self.threshold_box.setValue(60)
         self.threshold_box.setSuffix(" 秒")
@@ -250,8 +253,10 @@ class BatchSheet(QWidget):
         maximum = max(1, len(pages))
         for box in (self.start_box, self.end_box):
             box.setRange(1, maximum)
-        self.start_box.setValue(1)
-        self.end_box.setValue(maximum)
+        self._set_range(1, maximum)
+        self.all_box.blockSignals(True)
+        self.all_box.setChecked(True)
+        self.all_box.blockSignals(False)
         self.failed = []
         self.btn_retry.setEnabled(False)
         self._fill([page.name for page in pages])
@@ -296,10 +301,24 @@ class BatchSheet(QWidget):
             cursor.removeSelectedText()
             cursor.deleteChar()
 
+    def _set_range(self, start: int, end: int) -> None:
+        """Update both boxes without treating it as manual range editing."""
+        for box, value in ((self.start_box, start), (self.end_box, end)):
+            box.blockSignals(True)
+            box.setValue(value)
+            box.blockSignals(False)
+
     def _toggle_all(self, state: int) -> None:
-        enabled = not self.all_box.isChecked()
-        self.start_box.setEnabled(enabled)
-        self.end_box.setEnabled(enabled)
+        """Keep the number boxes usable; ticking 全部 only changes what start() does."""
+        if self.all_box.isChecked():
+            pages = list(self.project)
+            if pages:
+                self._set_range(1, len(pages))
+
+    def _range_edited(self, _value: int) -> None:
+        """Typing a range unticks 全部 so the numbers always mean something."""
+        if self.all_box.isChecked():
+            self.all_box.setChecked(False)
 
     def _selected_stages(self) -> tuple[str, ...]:
         return tuple(key for key, box in self.stage_boxes.items() if box.isChecked())
