@@ -175,17 +175,34 @@ def merge_boxes(
 
 
 def merge_lines(boxes: Sequence[tuple[int, int, int, int]]) -> list[tuple[int, int, int, int]]:
-    """Merge stacked or side-by-side lines into one block.
+    """Merge lines that belong to one block, never across a size jump.
 
-    Two boxes belong together when they overlap on one axis and the gap on the
-    other is a fraction of the typical line height; that tolerates normal line
-    spacing without gluing separate bubbles together.
+    ComicTextDetector returns text *lines*. Lines of one speech bubble share a
+    glyph height and sit within about one line-height of each other. A big sound
+    effect next to a bubble does not: gluing the two produced a block that
+    covered both, the OCR read across them and produced noise, and the bubble was
+    erased without replacement.
+
+    So a merge needs three things at once: overlapping span, a gap no larger than
+    a line, and comparable sizes.
+
+    >>> merge_lines([(0, 0, 40, 20), (0, 24, 40, 44)])
+    [(0, 0, 40, 44)]
+    >>> merge_lines([(0, 0, 40, 20), (0, 30, 40, 200)])
+    [(0, 0, 40, 20), (0, 30, 40, 200)]
     """
     items = [tuple(box) for box in boxes]
     if not items:
         return []
-    heights = sorted(box[3] - box[1] for box in items)
-    typical = max(8, heights[len(heights) // 2])
+
+    def similar(first: tuple[int, int, int, int], second: tuple[int, int, int, int]) -> bool:
+        first_height = max(1, first[3] - first[1])
+        second_height = max(1, second[3] - second[1])
+        first_width = max(1, first[2] - first[0])
+        second_width = max(1, second[2] - second[0])
+        height_ratio = first_height / second_height
+        width_ratio = first_width / second_width
+        return 0.5 <= height_ratio <= 2.0 and 0.4 <= width_ratio <= 2.5
 
     changed = True
     while changed:
@@ -193,14 +210,16 @@ def merge_lines(boxes: Sequence[tuple[int, int, int, int]]) -> list[tuple[int, i
         result: list[tuple[int, int, int, int]] = []
         for box in items:
             for index, other in enumerate(result):
+                if not similar(box, other):
+                    continue
                 overlap_x = min(box[2], other[2]) - max(box[0], other[0])
                 overlap_y = min(box[3], other[3]) - max(box[1], other[1])
                 gap_x = max(box[0], other[0]) - min(box[2], other[2])
                 gap_y = max(box[1], other[1]) - min(box[3], other[3])
-                stacked = overlap_x > 0.3 * min(box[2] - box[0], other[2] - other[0])
-                stacked = stacked and gap_y <= 0.9 * typical
-                side_by_side = overlap_y > 0.3 * min(box[3] - box[1], other[3] - other[1])
-                side_by_side = side_by_side and gap_x <= 0.5 * typical
+                line_height = min(box[3] - box[1], other[3] - other[1])
+                line_width = min(box[2] - box[0], other[2] - other[0])
+                stacked = overlap_x > 0.3 * line_width and gap_y <= line_height
+                side_by_side = overlap_y > 0.3 * line_height and gap_x <= 0.7 * line_width
                 if stacked or side_by_side:
                     result[index] = (
                         min(box[0], other[0]),
