@@ -849,6 +849,12 @@ class MainWindow(QMainWindow):
                 InfoBar.info(missing[1], missing[2], parent=self)
             mode = "source"
         self.view_mode = mode
+        if mode == "result" and not quiet and self._result_is_stale():
+            InfoBar.warning(
+                "结果图可能过期",
+                "project.json 比结果图新，点「运行本页」重新生成",
+                parent=self,
+            )
         path = self.editor.view_path(mode)
         if path is not None:
             self.canvas.show_image(path, keep_selection=True)
@@ -858,6 +864,15 @@ class MainWindow(QMainWindow):
         self.btn_view_result.setChecked(mode == "result")
         labels = {"source": "原图", "erased": "擦除后", "result": "排版结果"}
         self.statusBar().showMessage(f"预览：{labels.get(mode, mode)}")
+
+    def _result_is_stale(self) -> bool:
+        """True when the project changed after the result image was written."""
+        if self.editor is None or not self.editor.result_path.is_file():
+            return False
+        project_file = self.project.directory / "project.json"
+        if not project_file.is_file():
+            return False
+        return project_file.stat().st_mtime > self.editor.result_path.stat().st_mtime
 
     def open_folder_dialog(self) -> None:
         """Switch to another manga folder."""
