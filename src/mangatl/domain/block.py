@@ -32,6 +32,8 @@ class TextBlock:
     bbox_erase: bool = True
     in_bubble: bool = True
     bubble_bbox: tuple[int, int, int, int] | None = None
+    ocr_score: float = 0.0
+    ocr_source: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-ready mapping."""
@@ -50,6 +52,8 @@ class TextBlock:
             "area_fraction": round(self.area_fraction, 4),
             "bbox_erase": self.bbox_erase,
             "in_bubble": self.in_bubble,
+            "ocr_score": round(self.ocr_score, 4),
+            "ocr_source": self.ocr_source,
             "bubble_bbox": list(self.bubble_bbox) if self.bubble_bbox else None,
         }
 
@@ -76,5 +80,7 @@ class TextBlock:
             area_fraction=float(data.get("area_fraction", 0.0)),
             bbox_erase=bool(data.get("bbox_erase", True)),
             in_bubble=bool(data.get("in_bubble", True)),
+            ocr_score=float(data.get("ocr_score", 0.0)),
+            ocr_source=str(data.get("ocr_source", "")),
             bubble_bbox=tuple(data["bubble_bbox"]) if data.get("bubble_bbox") else None,
         )

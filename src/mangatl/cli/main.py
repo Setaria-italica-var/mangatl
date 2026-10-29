@@ -363,7 +363,10 @@ def _run_inspect(directory: Path) -> int:
     except FileNotFoundError:
         print(f"error: {directory} has no project.json", file=sys.stderr)
         return 2
-    print(f"{'page':10} {'id':>3} {'role':8} {'bubble':6} {'cov':>6} {'area':>6} {'size':>11} text")
+    print(
+        f"{'page':10} {'id':>3} {'role':8} {'bubble':6} {'cov':>6} {'area':>6} "
+        f"{'score':>5} {'source':10} {'size':>11} text"
+    )
     for page in project:
         for block in page.blocks:
             width = block.bbox[2] - block.bbox[0]
@@ -371,7 +374,8 @@ def _run_inspect(directory: Path) -> int:
             print(
                 f"{page.name:10} {block.id:3} {block.role:8} "
                 f"{str(block.in_bubble):6} {block.mask_coverage:6.3f} "
-                f"{block.area_fraction:6.2f} {width:5}x{height:<5} "
+                f"{block.area_fraction:6.2f} {block.ocr_score:5.2f} "
+                f"{block.ocr_source[:10]:10} {width:5}x{height:<5} "
                 f"{block.text[:22]!r}"
             )
     return 0

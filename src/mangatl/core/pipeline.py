@@ -126,6 +126,10 @@ class PipelineService:
                 if not page.blocks:
                     raise ValueError(f"{page.name}: OCR needs blocks from the detect stage")
                 page.blocks = self.ocr.recognize(image_path, page.blocks)
+                for block in page.blocks:
+                    if not block.ocr_source:
+                        block.ocr_source = getattr(self.ocr, "name", "")
+                    block.ocr_score = plausibility(block.text) if block.text.strip() else 0.0
                 assign_roles(page, config)
             elif stage == "translate":
                 ensure_mask(page, image_path, self.detector)
@@ -464,15 +468,13 @@ def assign_roles(page: Page, config: RunConfig) -> None:
         block.bbox_erase = not (block.area_fraction > 0.35 and coverage < 0.1)
         block.role = decision.role.value
         block.role_reasons = decision.reasons
-        if (
-            block.text.strip()
-            and plausibility(block.text) < 0.45
-            and block.role in (BlockRole.DIALOGUE.value, BlockRole.SFX.value)
-        ):
-            block.role = BlockRole.TEXTURE.value
-            block.role_reasons = (*decision.reasons, "implausible-ocr")
+        if block.text.strip() and plausibility(block.text) < 0.45:
+            # The OCR probably misread decorative lettering. Do NOT skip: bubble
+            # text must still be translated. Flag it so the verification chain
+            # (second engine / LLM judge / vision model) gets a chance, and let a
+            # human know the source text is suspect.
             block.needs_review = True
-            continue
+            block.role_reasons = (*decision.reasons, "implausible-ocr")
         if looks_garbled(block.text) and block.role in (
             BlockRole.DIALOGUE.value,
             BlockRole.SFX.value,
