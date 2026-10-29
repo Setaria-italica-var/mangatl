@@ -55,6 +55,12 @@ def default_registries() -> tuple[
         from mangatl.adapters.ocr.hybrid import HybridOcr
 
         ocrs.add("hybrid", HybridOcr)
+        try:
+            from mangatl.adapters.ocr.surya import SuryaOcr
+
+            ocrs.add("surya", SuryaOcr)
+        except ImportError:  # surya is optional; the name simply stays absent
+            pass
     try:
         from mangatl.adapters.ocr.rapid import RapidOcrAdapter
     except ImportError:  # numpy missing; the engine itself is imported lazily

@@ -96,3 +96,30 @@ python -c "from huggingface_hub import snapshot_download as d; d('ogkalu/comic-s
 3. `adapters/inpaint/lama.py`：LaMa ONNX，缺失时回退（本次）
 4. 气泡内排版边距（下一步）
 5. 分割模型（多边形）支持（可选）
+
+
+## 8. 可选 OCR：Surya 评估
+
+结论：**不作为默认依赖，只做可选后端**。原因如下。
+
+| 维度 | Surya 2 | 我们的用法 |
+|---|---|---|
+| 定位 | 文档 OCR 的 VLM（650M），训练目标是论文/表格/扫描件 | 漫画对话、竖排、手写风格字体 |
+| 日语 | 官方多语言基准 86.2%（文档语料） | 强，但非漫画语料 |
+| 运行要求 | 必须外挂推理后端：GPU 用 vLLM（Docker + NVIDIA Container Toolkit），CPU 用 llama.cpp 的 `llama-server` 二进制 | 便携版不能依赖 Docker |
+| 速度 | RTX 5090 约 5 页/秒；Apple Silicon 约 0.1 页/秒（≈9 秒/页） | CPU 上过慢 |
+| 代码许可 | Apache-2.0 | 兼容 |
+| 权重许可 | 修改版 OpenRAIL-M（研究/个人/营收 < 500 万美元免费，商用需授权） | 不随仓库分发；用户自行下载 |
+| 显存/内存 | 650M 参数 + vLLM 常驻，GB 级 | 便携版体积敏感 |
+
+用法（仅当你已经有 vLLM 或 llama-server）：
+
+```bat
+uv pip install surya-ocr
+python -m mangatl run samples\vol1 --ocr surya --stages ocr --force
+```
+
+适配器位于 `adapters/ocr/surya.py`：把 Surya 返回的行按覆盖率分配给检测块，
+覆盖率不足则标记 `needs_review` 且不擦除。
+
+何时值得用：整页手写体、装饰标题、竖排书法字，manga-ocr 与 RapidOCR 都读空的页。
