@@ -73,6 +73,7 @@ class PipelineService:
         renderer: PageRenderer | None = None,
         bubble_detector=None,
         ocr_judge=None,
+        vision_ocr=None,
         on_event: EventFn | None = None,
     ) -> None:
         self.project = project
@@ -83,7 +84,9 @@ class PipelineService:
         self.renderer = renderer or PageRenderer()
         self.bubble_detector = bubble_detector
         self.ocr_judge = ocr_judge
+        self.vision_ocr = vision_ocr
         self.verify_budget = 12
+        self.vision_budget = 6
         self.on_event = on_event
 
     def run(self, config: RunConfig) -> RunSummary:
@@ -134,7 +137,7 @@ class PipelineService:
                         block.ocr_source = getattr(self.ocr, "name", "")
                     block.ocr_score = plausibility(block.text) if block.text.strip() else 0.0
                 if config.verify_ocr:
-                    self._verify_ocr(page)
+                    self._verify_ocr(page, image_path)
                 assign_roles(page, config)
             elif stage == "translate":
                 ensure_mask(page, image_path, self.detector)
@@ -194,7 +197,7 @@ class PipelineService:
             self._emit(EVENT_STAGE_DONE, page.name, stage)
         return ran_any
 
-    def _verify_ocr(self, page: Page) -> None:
+    def _verify_ocr(self, page: Page, image_path: Path) -> None:
         """Ask the judge to pick between disagreeing engines.
 
         A low score never removes a block: bubble text must still be translated.
@@ -224,6 +227,33 @@ class PipelineService:
                 block.ocr_score = plausibility(text)
             if choice < 0 or confidence < 0.5 or block.ocr_score < 0.45:
                 block.needs_review = True
+
+        self._vision_read(page, image_path)
+
+    def _vision_read(self, page: Page, image_path: Path) -> None:
+        """Read the worst blocks with a vision model, if one is configured.
+
+        Only blocks that are still suspicious and inside a bubble are sent: they
+        are the ones that must be translated but whose source text is unreliable.
+        """
+        if self.vision_ocr is None or not getattr(self.vision_ocr, "available", False):
+            return
+        candidates = [
+            block
+            for block in page.blocks
+            if block.in_bubble and block.ocr_score < 0.5 and block.bbox[2] > block.bbox[0]
+        ]
+        candidates.sort(key=lambda block: block.ocr_score)
+        for block in candidates[: max(1, int(self.vision_budget))]:
+            text = self.vision_ocr.read(image_path, block.bbox)
+            if not text:
+                continue
+            score = plausibility(text)
+            if score > block.ocr_score:
+                block.text = text
+                block.ocr_score = score
+                block.ocr_source = getattr(self.vision_ocr, "name", "vision")
+                block.needs_review = score < 0.45
 
     def _emit(self, kind: str, page: str, detail: str = "") -> None:
         if self.on_event is not None:

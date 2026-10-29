@@ -115,6 +115,16 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--detector", default="grid")
     run.add_argument("--ocr", default="echo")
     run.add_argument(
+        "--vision-model",
+        default="",
+        help="vision model id for hard blocks (OpenAI-compatible endpoint)",
+    )
+    run.add_argument(
+        "--vision-base-url",
+        default="",
+        help="vision endpoint, e.g. http://127.0.0.1:8080/v1 for llama.cpp",
+    )
+    run.add_argument(
         "--verify-ocr",
         choices=("auto", "off"),
         default="auto",
@@ -238,6 +248,16 @@ def _build_ocr_judge(config: RunConfig):
 
     judge = LlmJudge(LlmConfig.from_env())
     return judge if judge.available else None
+
+
+def _build_vision_ocr(config: RunConfig):
+    """Vision reader for hard blocks; inert unless a model id is configured."""
+    if not config.verify_ocr:
+        return None
+    from mangatl.adapters.ocr.vision import VisionConfig, VisionOcr
+
+    vision = VisionOcr(VisionConfig.from_env())
+    return vision if vision.available else None
 
 
 def _run_translate_test(text: str, target: str) -> int:
@@ -506,6 +526,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         bubble_detector = _build_bubble_detector(config)
         ocr_judge = _build_ocr_judge(config)
+        vision_ocr = _build_vision_ocr(config)
         translator: Translator = (
             translators.get(config.translator)() if "translate" in enabled else EchoTranslator()
         )
@@ -531,6 +552,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         translator=translator,
         bubble_detector=bubble_detector,
         ocr_judge=ocr_judge,
+        vision_ocr=vision_ocr,
         on_event=_print_event,
     )
     summary = service.run(config)
