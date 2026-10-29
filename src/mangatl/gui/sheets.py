@@ -10,6 +10,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QColorDialog,
+    QDialog,
     QDoubleSpinBox,
     QHBoxLayout,
     QLabel,
@@ -40,16 +41,12 @@ from mangatl.gui.pages import page_status
 
 SHEET_TITLES = {
     "editor": "编辑",
-    "blocks": "文本块",
-    "search": "搜索",
     "run": "运行",
     "settings": "设置",
 }
 
 SHEET_ICONS = {
     "editor": FIF.EDIT,
-    "blocks": FIF.TILES,
-    "search": FIF.SEARCH,
     "run": FIF.PLAY,
     "settings": FIF.SETTING,
 }
@@ -467,14 +464,27 @@ class SettingsSheet(QWidget):
         layout.addStretch(1)
 
 
+class SearchDialog(QDialog):
+    """Global block search as a dialog (the rail keeps only editing/run/settings)."""
+
+    def __init__(self, project: Project, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("搜索文本块")
+        self.resize(900, 600)
+        layout = QVBoxLayout(self)
+        self.sheet = SearchSheet(project)
+        layout.addWidget(self.sheet)
+
+    def refresh(self) -> None:
+        self.sheet.refresh()
+
+
 def build_sheets(project: Project, engines_provider=None) -> dict[str, QWidget]:
     """Create the standard module panels (run doubles as the batch panel)."""
     from mangatl.gui.batch import BatchSheet
 
     return {
         "editor": EditorSheet(),
-        "blocks": BlocksSheet(),
-        "search": SearchSheet(project),
         "run": BatchSheet(project, engines_provider),
         "settings": SettingsSheet(),
     }

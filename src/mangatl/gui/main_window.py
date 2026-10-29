@@ -336,9 +336,6 @@ class MainWindow(QMainWindow):
         editor.blockEdited.connect(self.on_block_edited)
         editor.blockAction.connect(self.on_block_action)
         editor.blockApplied.connect(self.on_block_applied)
-        self.sheets["blocks"].blockSelected.connect(self.select_block)
-        self.sheets["blocks"].blockEdited.connect(self.on_block_edited)
-        self.sheets["search"].jumpRequested.connect(self._jump_to_block)
         self.sheets["run"].finished = self.on_batch_finished
         self.sheets["run"].runCurrentRequested.connect(
             lambda: self.run_page(self.page_index)
@@ -360,8 +357,14 @@ class MainWindow(QMainWindow):
         self.module_dock.show()
 
     def show_search(self) -> None:
-        self.show_module("search")
-        self.sheets["search"].refresh()
+        """Open the global search dialog."""
+        from mangatl.gui.sheets import SearchDialog
+
+        dialog = SearchDialog(self.project, self)
+        dialog.sheet.jumpRequested.connect(
+            lambda page, block: (self._jump_to_block(page, block), dialog.accept())
+        )
+        dialog.exec()
 
     # -- slim bottom engine bar -------------------------------------------
     def _build_engine_bar(self) -> None:
@@ -416,8 +419,6 @@ class MainWindow(QMainWindow):
         self.page_list.blockSignals(True)
         self.page_list.setCurrentRow(current)
         self.page_list.blockSignals(False)
-        self.sheets["search"].project = self.project
-        self.sheets["search"].refresh()
         self.sheets["run"].set_project(self.project)
         self._refresh_sheets()
 
@@ -428,12 +429,10 @@ class MainWindow(QMainWindow):
         page = list(self.project)[self.page_index]
         self.page_list.update_page(self.page_index, page)
         self.sheets["editor"].show_page(page)
-        self.sheets["blocks"].show_page(page)
 
     def _refresh_sheets(self) -> None:
         page = list(self.project)[self.page_index] if len(self.project) else None
         self.sheets["editor"].show_page(page)
-        self.sheets["blocks"].show_page(page)
 
     def load_page(self, index: int, keep_selection: bool = False) -> None:
         if not len(self.project):
@@ -1091,7 +1090,6 @@ class MainWindow(QMainWindow):
         self.selected_ids = []
         self.region = None
         self.canvas.clear_selection()
-        self.sheets["search"].project = self.project
         self.sheets["run"].set_project(self.project)
         self.setWindowTitle(f"mangatl — {folder.name}")
         self.refresh_pages()
