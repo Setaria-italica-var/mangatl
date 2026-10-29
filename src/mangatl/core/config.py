@@ -39,6 +39,7 @@ class RunConfig:
     verify_budget: int = 12
     page_scopes: tuple[str, ...] = ()
     bubble_model: str = "data/models/bubble_detector.onnx"
+    bubble_confidence: float = 0.3
     keep_blocks: tuple[str, ...] = ()
     force_blocks: tuple[str, ...] = ()
     extra: dict[str, str] = field(default_factory=dict)

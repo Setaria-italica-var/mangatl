@@ -160,6 +160,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "heuristic falls back to the pixel test, off erases every block",
     )
     run.add_argument(
+        "--bubble-conf",
+        type=float,
+        default=0.3,
+        help="bubble detector confidence (lower finds more bubbles, more false positives)",
+    )
+    run.add_argument(
         "--bubble-model",
         default="data/models/bubble_detector.onnx",
         help="path to the YOLOv8 bubble detector ONNX file",
@@ -244,7 +250,7 @@ def _build_bubble_detector(config: RunConfig):
         return None
     from mangatl.adapters.detectors.bubbles import BubbleDetector
 
-    detector = BubbleDetector(config.bubble_model)
+    detector = BubbleDetector(config.bubble_model, confidence=config.bubble_confidence)
     if config.bubbles == "model" and not detector.available:
         raise FileNotFoundError(
             f"bubble model not found: {config.bubble_model}\n"
@@ -560,6 +566,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         bubbles=args.bubbles,
         verify_ocr=args.verify_ocr != "off",
         bubble_model=args.bubble_model,
+        bubble_confidence=args.bubble_conf,
         page_scopes=tuple(args.page_scope),
         keep_blocks=tuple(filter(None, (s.strip() for s in args.keep_blocks.split(",")))),
         force_blocks=tuple(filter(None, (s.strip() for s in args.erase_blocks.split(",")))),

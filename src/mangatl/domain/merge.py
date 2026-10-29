@@ -60,9 +60,15 @@ def _reading_order(blocks: Sequence[TextBlock]) -> list[TextBlock]:
 
 
 def _same_bubble(a: TextBlock, b: TextBlock) -> bool | None:
-    """``True``/``False`` when both know their bubble, ``None`` when unknown."""
-    if a.bubble_bbox is None or b.bubble_bbox is None:
+    """Whether two blocks belong to the same bubble.
+
+    A block without a bubble is background text (a sound effect on the artwork);
+    merging it into a bubble would move its translation into someone else's line.
+    """
+    if a.bubble_bbox is None and b.bubble_bbox is None:
         return None
+    if a.bubble_bbox is None or b.bubble_bbox is None:
+        return False
     ax1, ay1, ax2, ay2 = a.bubble_bbox
     bx1, by1, bx2, by2 = b.bubble_bbox
     intersection = max(0, min(ax2, bx2) - max(ax1, bx1)) * max(0, min(ay2, by2) - max(ay1, by1))

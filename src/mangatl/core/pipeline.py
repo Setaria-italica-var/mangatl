@@ -510,8 +510,13 @@ def annotate_with_model(page: Page, image_path: Path, detector) -> bool:
                 continue
             usable.append(bubble)
         block.in_bubble = covered(block.bbox, usable)
-        best = max(usable, key=lambda bubble: coverage(block.bbox, [bubble]), default=None)
-        block.bubble_bbox = best.bbox if best is not None else None
+        if block.in_bubble:
+            best = max(
+                usable, key=lambda bubble: coverage(block.bbox, [bubble]), default=None
+            )
+            block.bubble_bbox = best.bbox if best is not None else None
+        else:
+            block.bubble_bbox = None
     return True
 
 
@@ -564,6 +569,14 @@ def assign_roles(page: Page, config: RunConfig) -> None:
             mask_coverage=coverage,
             config=settings,
         )
+        if (
+            block.role == BlockRole.SYMBOL.value
+            and block.bubble_bbox is not None
+            and not block.vertical
+        ):
+            bx1, by1, bx2, by2 = block.bubble_bbox
+            if (by2 - by1) > (bx2 - bx1) * 1.2:
+                block.vertical = True
         if block.role == BlockRole.SYMBOL.value and not block.translation.strip():
             # Symbols are copied verbatim, so they can be erased even when the
             # translate stage has not run.
