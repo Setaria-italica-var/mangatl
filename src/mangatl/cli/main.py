@@ -53,9 +53,15 @@ def default_registries() -> tuple[
         pass
     else:
         ocrs.add("manga_ocr", MangaOcrAdapter)
-        from mangatl.adapters.ocr.hybrid import HybridOcr
+        from mangatl.adapters.ocr.hybrid import FusionOcr, HybridOcr
 
         ocrs.add("hybrid", HybridOcr)
+        from mangatl.adapters.ocr.mit48px import Mit48pxOcr
+
+        ocrs.add("mit48px_ctc", Mit48pxOcr)
+        from mangatl.adapters.ocr.manga_ocr import MangaOcrAdapter
+
+        ocrs.add("mit_manga", lambda: FusionOcr(Mit48pxOcr(), MangaOcrAdapter()))
         try:
             from mangatl.adapters.ocr.surya import SuryaOcr
 

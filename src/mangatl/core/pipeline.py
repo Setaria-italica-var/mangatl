@@ -131,6 +131,10 @@ class PipelineService:
             elif stage == "ocr":
                 if not page.blocks:
                     raise ValueError(f"{page.name}: OCR needs blocks from the detect stage")
+                for block in page.blocks:
+                    block.ocr_source = ""
+                    block.ocr_candidates = []
+                    block.ocr_score = 0.0
                 page.blocks = self.ocr.recognize(image_path, page.blocks)
                 engine_name = getattr(self.ocr, "name", "")
                 for block in page.blocks:

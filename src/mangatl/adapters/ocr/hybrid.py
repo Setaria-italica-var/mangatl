@@ -84,3 +84,49 @@ class HybridOcr:
             if not block.text.strip():
                 block.confidence = 0.0
         return list(blocks)
+
+
+class FusionOcr:
+    """Run two engines on every block and keep the more plausible reading.
+
+    Unlike :class:`HybridOcr`, the second engine is not gated by a heuristic: both
+    models are strong but fail on different lettering, so comparing their outputs
+    directly is the most reliable rule.
+    """
+
+    name = "fusion"
+
+    def __init__(self, primary=None, fallback=None) -> None:
+        if primary is None or fallback is None:
+            raise ValueError("FusionOcr needs two engines")
+        self.primary = primary
+        self.fallback = fallback
+
+    def recognize(self, image_path: Path, blocks: Sequence[TextBlock]) -> list[TextBlock]:
+        """Read with both engines and pick per block by plausibility."""
+        self.primary.recognize(image_path, blocks)
+        first = {id(block): block.text for block in blocks}
+        self.fallback.recognize(image_path, blocks)
+
+        primary_name = getattr(self.primary, "name", "primary")
+        fallback_name = getattr(self.fallback, "name", "fallback")
+        for block in blocks:
+            left = first[id(block)].strip()
+            right = block.text.strip()
+            left_score = plausibility(left)
+            right_score = plausibility(right)
+            if left_score >= right_score:
+                block.text, block.ocr_score = left, left_score
+                block.ocr_source = primary_name
+            else:
+                block.text, block.ocr_score = right, right_score
+                block.ocr_source = fallback_name
+            candidates = []
+            if left:
+                candidates.append((primary_name, left))
+            if right and right != left:
+                candidates.append((fallback_name, right))
+            block.ocr_candidates = candidates
+            if block.ocr_score < 0.45:
+                block.needs_review = True
+        return list(blocks)
