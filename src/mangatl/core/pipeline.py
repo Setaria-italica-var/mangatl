@@ -145,7 +145,8 @@ class PipelineService:
                 if not source.is_file():
                     source = image_path  # no erase output yet: letter the original
                 destination = self.project.directory / config.result_dirname / page.name
-                self.renderer.render(source, page.blocks, destination)
+                lettered = [block for block in page.blocks if should_erase(block, config)]
+                self.renderer.render(source, lettered, destination)
             elif stage == "erase":
                 # Roles are derived from the OCR text, so recompute them even
                 # when the OCR stage was skipped on a resumed run.
@@ -431,6 +432,8 @@ def should_translate(block: TextBlock, config: RunConfig) -> bool:
     """
     if not block.text.strip():
         return False
+    if not block.in_bubble and not config.erase_background:
+        return False  # background text is neither erased nor lettered
     if not is_translatable(block.role):
         return False
     return not (block.role == BlockRole.SFX.value and config.sfx_policy != "erase")
