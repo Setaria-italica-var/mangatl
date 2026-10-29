@@ -252,6 +252,40 @@ def merge_lines(
     return items
 
 
+def _ink_runs(profile: np.ndarray, gap: int = 3) -> int:
+    """Count separate ink bands along one axis."""
+    active = profile > 0
+    count, last = 0, -10**6
+    for index, value in enumerate(active):
+        if value and index - last > gap:
+            count += 1
+        if value:
+            last = index
+    return count
+
+
+def _is_vertical(box: tuple[int, int, int, int], probability: np.ndarray | None) -> bool:
+    """Decide the writing direction from the *arrangement* of ink.
+
+    Japanese glyphs are square, so their aspect says nothing. What differs is the
+    layout: vertical text forms several narrow columns with one continuous
+    vertical run, horizontal text forms several rows with one continuous
+    horizontal run. When the projection is inconclusive, fall back to the box
+    aspect.
+    """
+    x1, y1, x2, y2 = box
+    if probability is not None:
+        region = np.asarray(probability)[y1:y2, x1:x2] > 0.5
+        if region.any():
+            columns = _ink_runs(region.any(axis=0))
+            rows = _ink_runs(region.any(axis=1))
+            if columns >= 2 and rows == 1:
+                return True
+            if rows >= 2 and columns == 1:
+                return False
+    return (y2 - y1) > (x2 - x1) * 1.6
+
+
 class CtdDetector:
     """Detect text blocks with ComicTextDetector running through onnxruntime."""
 
@@ -324,20 +358,25 @@ class CtdDetector:
             for x1, y1, x2, y2 in small_boxes
         ]
         boxes = merge_lines(boxes, page_size=(width, height))
-        return self._to_blocks(boxes, width, height), probability
+        return self._to_blocks(boxes, width, height, probability), probability
 
     @staticmethod
     def _to_blocks(
-        boxes: Sequence[tuple[int, int, int, int]], width: int, height: int
+        boxes: Sequence[tuple[int, int, int, int]],
+        width: int,
+        height: int,
+        probability: np.ndarray | None = None,
     ) -> list[TextBlock]:
-        blocks = [
-            TextBlock(
-                id=index,
-                bbox=(max(0, x1), max(0, y1), min(width, x2), min(height, y2)),
-                vertical=(y2 - y1) > (x2 - x1) * 1.6,
+        blocks: list[TextBlock] = []
+        for index, (x1, y1, x2, y2) in enumerate(boxes):
+            box = (max(0, x1), max(0, y1), min(width, x2), min(height, y2))
+            blocks.append(
+                TextBlock(
+                    id=index,
+                    bbox=box,
+                    vertical=_is_vertical(box, probability),
+                )
             )
-            for index, (x1, y1, x2, y2) in enumerate(boxes)
-        ]
         vertical_share = sum(1 for block in blocks if block.vertical) / max(1, len(blocks))
         if vertical_share > 0.5:
             blocks.sort(key=lambda block: (-block.bbox[2], block.bbox[1]))
