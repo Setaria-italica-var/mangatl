@@ -35,7 +35,6 @@ from qfluentwidgets import (
 from mangatl.domain.project import Project
 from mangatl.gui.canvas import PageCanvas
 from mangatl.gui.editor import PageEditor
-from mangatl.gui.fluent import set_accent
 from mangatl.gui.pages import ThumbnailList
 from mangatl.gui.sheets import SHEET_ICONS, SHEET_TITLES, build_sheets
 
@@ -340,7 +339,6 @@ class MainWindow(QMainWindow):
         self.sheets["run"].runCurrentRequested.connect(
             lambda: self.run_page(self.page_index)
         )
-        self.sheets["settings"].accentChanged.connect(self.on_accent)
         self.sheets["settings"].apiConfigured.connect(self.on_api_configured)
 
         self.rail_current = "editor"
@@ -981,10 +979,6 @@ class MainWindow(QMainWindow):
         self.refresh_pages()
         if len(self.project):
             self.load_page(self.page_index, keep_selection=True)
-
-    def on_accent(self, colour: str) -> None:
-        set_accent(colour)
-        self.statusBar().showMessage(f"强调色已切换为 {colour}")
 
     # -- misc -------------------------------------------------------------
     def _toggle_auto_preview(self, checked: bool) -> None:

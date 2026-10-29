@@ -428,7 +428,6 @@ class SearchSheet(QWidget):
 class SettingsSheet(QWidget):
     """Accent colour, translation endpoint and environment overview."""
 
-    accentChanged = Signal(str)
     apiConfigured = Signal()
 
     def __init__(self) -> None:
@@ -456,7 +455,8 @@ class SettingsSheet(QWidget):
         self.remember_box = CheckBox("记住 Key（Windows DPAPI 加密）")
         layout.addWidget(self.remember_box)
         api_row = QHBoxLayout()
-        self.btn_api = PushButton("应用接口设置")
+        self.btn_api = PrimaryPushButton(FIF.ACCEPT, "应用接口设置")
+        self.btn_api.setMinimumHeight(32)
         self.btn_api.clicked.connect(self._apply_api)
         api_row.addWidget(self.btn_api)
         self.api_status = CaptionLabel("")
@@ -468,19 +468,6 @@ class SettingsSheet(QWidget):
                 "Key 用 DPAPI 加密后写入 data/secrets.bin。"
             )
         )
-
-        layout.addWidget(BodyLabel("强调色"))
-        row = QHBoxLayout()
-        for colour, name in (
-            ("#4f9cf9", "蓝"),
-            ("#7c5cff", "紫"),
-            ("#2fb171", "绿"),
-            ("#e0863a", "橙"),
-        ):
-            button = PushButton(name)
-            button.clicked.connect(lambda _=False, c=colour: self.accentChanged.emit(c))
-            row.addWidget(button)
-        layout.addLayout(row)
 
         import os
 

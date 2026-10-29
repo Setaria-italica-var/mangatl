@@ -82,7 +82,3 @@ def init_fluent(application: QApplication, accent: str = ACCENT) -> None:
     except Exception:  # noqa: BLE001 - older versions without the helper
         pass
 
-
-def set_accent(colour: str) -> None:
-    """Switch the accent colour at runtime."""
-    setThemeColor(colour)

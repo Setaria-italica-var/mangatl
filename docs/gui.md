@@ -30,7 +30,7 @@ python -m mangatl gui samples\vol1
 | ✎ | 编辑 | 块文本/译文/角色、应用、重识别、翻译、排版、删除；区域重检测/擦除/添加 |
 
 | ▶ | 运行 | 当前页 + 批量（范围/阶段/断点续跑/心跳/日志） |
-| ⚙ | 设置 | 翻译接口（预设：DeepSeek 云 / Ollama / LM Studio / llama.cpp）、Key 加密保存、强调色 |
+| ⚙ | 设置 | 翻译接口（预设：DeepSeek 云 / Ollama / LM Studio / llama.cpp）、Key 加密保存 |
 
 ## 预览原图 / 擦除 / 结果
 
