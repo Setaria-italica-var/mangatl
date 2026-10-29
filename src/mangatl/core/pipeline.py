@@ -360,9 +360,23 @@ def annotate_with_model(page: Page, image_path: Path, detector) -> bool:
         return False
     if not bubbles:
         return False  # let the heuristic try: a page the model misses entirely
+    page_area = max(1, page.size[0] * page.size[1]) if page.size else None
     for block in page.blocks:
-        block.in_bubble = covered(block.bbox, bubbles)
-        best = max(bubbles, key=lambda bubble: coverage(block.bbox, [bubble]), default=None)
+        x1, y1, x2, y2 = block.bbox
+        block_area = max(1, (x2 - x1) * (y2 - y1))
+        # Sanity-filter the detections: a "bubble" smaller than the text it should
+        # contain, or one covering most of the page, is a false positive.
+        usable = []
+        for bubble in bubbles:
+            bx1, by1, bx2, by2 = bubble.bbox
+            area = max(1, (bx2 - bx1) * (by2 - by1))
+            if area < 0.9 * block_area:
+                continue
+            if page_area is not None and area > 0.4 * page_area:
+                continue
+            usable.append(bubble)
+        block.in_bubble = covered(block.bbox, usable)
+        best = max(usable, key=lambda bubble: coverage(block.bbox, [bubble]), default=None)
         block.bubble_bbox = best.bbox if best is not None else None
     return True
 
