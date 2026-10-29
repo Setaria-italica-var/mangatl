@@ -54,7 +54,19 @@ def init_fluent(application: QApplication, accent: str = ACCENT) -> None:
     palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
     application.setPalette(palette)
     application.setStyleSheet(CHROME_QSS)
-    application.setFont(QFont(FONT_FAMILY, 9))
+    # Use a pixel size, like Fluent does itself. Mixing a point size into widgets
+    # that expect pixels makes Qt warn with "Point size <= 0 (-1)".
+    families = [FONT_FAMILY, "Microsoft YaHei", "Segoe UI", "Noto Sans CJK SC"]
+    font = QFont()
+    font.setFamilies(families)
+    font.setPixelSize(13)
+    application.setFont(font)
+    try:
+        from qfluentwidgets import setFontFamilies
+
+        setFontFamilies(families)
+    except Exception:  # noqa: BLE001 - older versions without the helper
+        pass
 
 
 def set_accent(colour: str) -> None:

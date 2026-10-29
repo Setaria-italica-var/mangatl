@@ -5,6 +5,31 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+_IGNORED_QT_WARNINGS = (
+    # Qt's style engine re-derives a font from a widget that already uses a pixel
+    # size, then reports the missing point size. It is noise, not a failure.
+    "Point size <= 0",
+)
+
+
+def _install_qt_log_filter() -> None:
+    """Drop harmless Qt font-metric warnings from the console."""
+    from PySide6.QtCore import QtMsgType, qInstallMessageHandler
+
+    def handler(mode, context, message: str) -> None:
+        if any(fragment in message for fragment in _IGNORED_QT_WARNINGS):
+            return
+        prefix = {
+            QtMsgType.QtDebugMsg: "Qt:",
+            QtMsgType.QtInfoMsg: "Qt:",
+            QtMsgType.QtWarningMsg: "Qt warning:",
+            QtMsgType.QtCriticalMsg: "Qt error:",
+            QtMsgType.QtFatalMsg: "Qt fatal:",
+        }.get(mode, "Qt:")
+        print(f"{prefix} {message}", file=sys.stderr)
+
+    qInstallMessageHandler(handler)
+
 
 def run(project_dir: Path | str) -> int:
     """Open the editor on a project directory and return the exit code."""
@@ -17,6 +42,7 @@ def run(project_dir: Path | str) -> int:
         )
         return 2
 
+    _install_qt_log_filter()
     from mangatl.gui.fluent import init_fluent
     from mangatl.gui.main_window import MainWindow
 
