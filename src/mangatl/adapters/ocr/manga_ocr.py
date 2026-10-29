@@ -17,7 +17,7 @@ import os
 from collections.abc import Sequence
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from mangatl.domain.block import TextBlock
 
@@ -109,12 +109,43 @@ class MangaOcrAdapter:
                 if block.vertical:
                     crop = crop.transpose(Image.Transpose.ROTATE_90)
                 try:
-                    block.text = self._model(crop).strip()
-                    block.confidence = NEUTRAL_CONFIDENCE
+                    text = self._read(crop)
+                    block.text = text
+                    block.confidence = NEUTRAL_CONFIDENCE if text else 0.0
                 except Exception:  # a single bad crop must not kill the page
                     block.text = ""
                     block.confidence = 0.0
         return list(blocks)
+
+    def _read(self, crop: Image.Image) -> str:
+        """Try the plain crop, then preprocessing variants, until text appears."""
+        for candidate in variants(crop):
+            text = self._model(candidate).strip()
+            if text:
+                return text
+        return ""
+
+
+def variants(crop: Image.Image) -> list[Image.Image]:
+    """Preprocessing fallbacks for crops the model reads as empty.
+
+    Small, low-contrast or inverted lettering is common in manga; upscaling with
+    an autocontrast pass, then trying the negative, recovers a good share of it
+    without any extra model.
+    """
+    enlarged = crop.resize((crop.width * 2, crop.height * 2), Image.LANCZOS)
+    # The model expects some margin around a text line; a tight crop shrinks its
+    # context and often yields an empty read, so padding is part of the retry set.
+    border = max(8, min(crop.width, crop.height) // 8)
+    padded = ImageOps.expand(crop, border=border, fill=(255, 255, 255))
+    padded_large = ImageOps.expand(enlarged, border=border * 2, fill=(255, 255, 255))
+    return [
+        crop,
+        padded,
+        ImageOps.autocontrast(enlarged),
+        ImageOps.autocontrast(padded_large),
+        ImageOps.invert(ImageOps.autocontrast(enlarged)),
+    ]
 
 
 def hub_endpoint() -> str:

@@ -52,6 +52,9 @@ def default_registries() -> tuple[
         pass
     else:
         ocrs.add("manga_ocr", MangaOcrAdapter)
+        from mangatl.adapters.ocr.hybrid import HybridOcr
+
+        ocrs.add("hybrid", HybridOcr)
     try:
         from mangatl.adapters.ocr.rapid import RapidOcrAdapter
     except ImportError:  # numpy missing; the engine itself is imported lazily
