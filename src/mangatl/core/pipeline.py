@@ -89,10 +89,11 @@ class PipelineService:
         self.vision_budget = 6
         self.on_event = on_event
 
-    def run(self, config: RunConfig) -> RunSummary:
-        """Process every page and return the summary."""
-        summary = RunSummary(total=len(self.project))
-        for page in self.project:
+    def run(self, config: RunConfig, only: set[str] | None = None) -> RunSummary:
+        """Process pages (optionally a subset) and return the summary."""
+        pages = [page for page in self.project if only is None or page.name in only]
+        summary = RunSummary(total=len(pages))
+        for page in pages:
             try:
                 ran_any = self._run_page(page, config)
             except Exception as exc:  # one bad page must not abort the batch

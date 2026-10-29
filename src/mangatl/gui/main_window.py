@@ -1,9 +1,4 @@
-"""Main window: page list, canvas, inspector and editing actions.
-
-Layout follows the way a letterer works: the page in the middle, pages on the left,
-the selected block's text and actions on the right. Region tools (lasso/rectangle)
-feed the same operations as the buttons, so nothing requires a hidden menu.
-"""
+"""Main window: thumbnails, sheet-style page tabs, canvas and inspector."""
 
 from __future__ import annotations
 
@@ -16,8 +11,8 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDockWidget,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
-    QListWidget,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -30,6 +25,8 @@ from PySide6.QtWidgets import (
 from mangatl.domain.project import Project
 from mangatl.gui.canvas import PageCanvas
 from mangatl.gui.editor import PageEditor
+from mangatl.gui.pages import PageTabs, ThumbnailList
+from mangatl.gui.search import GlobalSearchDialog
 
 
 class MainWindow(QMainWindow):
@@ -38,7 +35,7 @@ class MainWindow(QMainWindow):
     def __init__(self, project_dir: Path) -> None:
         super().__init__()
         self.setWindowTitle(f"mangatl — {project_dir.name}")
-        self.resize(1440, 900)
+        self.resize(1500, 940)
 
         self.project = Project.open(project_dir)
         if not len(self.project):
@@ -50,11 +47,12 @@ class MainWindow(QMainWindow):
         self._undo: list[list[dict]] = []
 
         self._build_toolbar()
+        self._build_central()
         self._build_pages()
-        self._build_canvas()
         self._build_inspector()
         self.statusBar().showMessage("就绪")
 
+        self.refresh_pages()
         if len(self.project):
             self.load_page(0)
         else:
@@ -72,15 +70,18 @@ class MainWindow(QMainWindow):
         self.act_lasso.triggered.connect(lambda: self._set_mode("lasso"))
         self.act_rect = QAction("矩形", self, checkable=True)
         self.act_rect.triggered.connect(lambda: self._set_mode("rect"))
-        group = [self.act_select, self.act_lasso, self.act_rect]
-        for action in group:
+        for action in (self.act_select, self.act_lasso, self.act_rect):
             bar.addAction(action)
 
         bar.addSeparator()
         self.act_fit = QAction("适应窗口", self, shortcut=QKeySequence("F"))
         self.act_fit.triggered.connect(lambda: self.canvas.fit())
         bar.addAction(self.act_fit)
+        self.act_rotate = QAction("旋转 90°", self, shortcut=QKeySequence("R"))
+        self.act_rotate.triggered.connect(lambda: self.canvas.rotate_view())
+        bar.addAction(self.act_rotate)
 
+        bar.addSeparator()
         self.act_prev = QAction("上一页", self, shortcut=QKeySequence("PgUp"))
         self.act_prev.triggered.connect(lambda: self.load_page(self.page_index - 1))
         self.act_next = QAction("下一页", self, shortcut=QKeySequence("PgDown"))
@@ -89,26 +90,25 @@ class MainWindow(QMainWindow):
         bar.addAction(self.act_next)
 
         bar.addSeparator()
+        self.act_search = QAction("全局搜索", self, shortcut=QKeySequence("Ctrl+G"))
+        self.act_search.triggered.connect(self.open_search)
+        bar.addAction(self.act_search)
+        self.act_run = QAction("运行本页", self, shortcut=QKeySequence("F5"))
+        self.act_run.triggered.connect(lambda: self.run_page(self.page_index))
+        bar.addAction(self.act_run)
+
         self.act_undo = QAction("撤销", self, shortcut=QKeySequence.StandardKey.Undo)
         self.act_undo.triggered.connect(self.undo)
         bar.addAction(self.act_undo)
-
         self.act_save = QAction("保存", self, shortcut=QKeySequence.StandardKey.Save)
         self.act_save.triggered.connect(self.save)
         bar.addAction(self.act_save)
 
-    def _build_pages(self) -> None:
-        dock = QDockWidget("页面", self)
-        dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
-        self.page_list = QListWidget()
-        for page in self.project:
-            self.page_list.addItem(page.name)
-        self.page_list.currentRowChanged.connect(self.load_page)
-        dock.setWidget(self.page_list)
-        dock.setMinimumWidth(170)
-        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, dock)
-
-    def _build_canvas(self) -> None:
+    def _build_central(self) -> None:
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
         self.canvas = PageCanvas(self)
         self.canvas.blockClicked.connect(self.select_block)
         self.canvas.lassoFinished.connect(self.on_lasso)
@@ -116,11 +116,26 @@ class MainWindow(QMainWindow):
         self.canvas.cursorMoved.connect(
             lambda x, y: self.statusBar().showMessage(f"x={x} y={y}")
         )
-        self.setCentralWidget(self.canvas)
+        layout.addWidget(self.canvas, 1)
+        self.tabs = PageTabs()
+        self.tabs.pageSelected.connect(self.load_page)
+        self.tabs.pageAction.connect(self.on_page_action)
+        layout.addWidget(self.tabs)
+        self.setCentralWidget(container)
+
+    def _build_pages(self) -> None:
+        dock = QDockWidget("页面", self)
+        dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
+        self.page_list = ThumbnailList()
+        self.page_list.pageSelected.connect(self.load_page)
+        self.page_list.pageAction.connect(self.on_page_action)
+        dock.setWidget(self.page_list)
+        dock.setMinimumWidth(190)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, dock)
 
     def _build_inspector(self) -> None:
         dock = QDockWidget("文本块", self)
-        dock.setMinimumWidth(320)
+        dock.setMinimumWidth(330)
         panel = QWidget()
         layout = QVBoxLayout(panel)
 
@@ -130,12 +145,12 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(QLabel("原文（可手工修正）"))
         self.text_edit = QTextEdit()
-        self.text_edit.setFixedHeight(90)
+        self.text_edit.setFixedHeight(88)
         layout.addWidget(self.text_edit)
 
         layout.addWidget(QLabel("译文"))
         self.translation_edit = QTextEdit()
-        self.translation_edit.setFixedHeight(90)
+        self.translation_edit.setFixedHeight(88)
         layout.addWidget(self.translation_edit)
 
         layout.addWidget(QLabel("角色"))
@@ -186,6 +201,15 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
 
     # -- pages ------------------------------------------------------------
+    def refresh_pages(self) -> None:
+        """Rebuild the tab bar and thumbnail list from the project."""
+        names = [page.name for page in self.project]
+        self.tabs.set_pages(names)
+        self.page_list.set_pages(list(self.project), self.project.directory)
+        for index, page in enumerate(self.project):
+            self.tabs.update_page(index, page)
+            self.page_list.update_page(index, page)
+
     def load_page(self, index: int) -> None:
         if not len(self.project):
             return
@@ -194,6 +218,7 @@ class MainWindow(QMainWindow):
         self.page_list.blockSignals(True)
         self.page_list.setCurrentRow(index)
         self.page_list.blockSignals(False)
+        self.tabs.select(index)
         page = list(self.project)[index]
         self.editor = PageEditor(self.project, page)
         self.selected_id = None
@@ -204,9 +229,89 @@ class MainWindow(QMainWindow):
         self.info.setText(f"{page.name} — {len(page.blocks)} 块")
         self.statusBar().showMessage(f"已加载 {page.name}")
 
+    def on_page_action(self, action: str, index: int) -> None:
+        """Handle the page-level context-menu actions."""
+        if action == "add":
+            self.project.scan()
+            self.refresh_pages()
+            return
+        if index < 0 or index >= len(self.project):
+            return
+        if action == "run":
+            self.run_page(index)
+        elif action == "reset":
+            self.reset_page(index)
+        elif action == "open":
+            page = list(self.project)[index]
+            result = self.project.directory / "result" / page.name
+            if result.is_file():
+                os.startfile(result)  # noqa: S606 - open a local file
+            else:
+                self.statusBar().showMessage("该页还没有排版结果")
+        elif action == "rename":
+            self.rename_page(index)
+
+    def rename_page(self, index: int) -> None:
+        page = list(self.project)[index]
+        new_name, ok = QInputDialog.getText(
+            self, "重命名页面", "新文件名：", text=page.name
+        )
+        if not ok or not new_name.strip() or new_name == page.name:
+            return
+        old_path = self.project.directory / page.name
+        new_path = self.project.directory / new_name
+        if new_path.exists():
+            QMessageBox.warning(self, "重命名失败", "目标文件已存在")
+            return
+        old_path.rename(new_path)
+        pages = self.project.pages
+        pages[new_name] = pages.pop(page.name)
+        pages[new_name].name = new_name
+        self.project.save()
+        self.refresh_pages()
+        self.load_page(index)
+        self.statusBar().showMessage(f"已重命名为 {new_name}")
+
+    def reset_page(self, index: int) -> None:
+        page = list(self.project)[index]
+        for stage in list(page.stage):
+            page.stage[stage] = 0
+        for block in page.blocks:
+            block.needs_review = False
+        self.project.save()
+        self.refresh_pages()
+        self.statusBar().showMessage(f"{page.name} 已重置")
+
+    def run_page(self, index: int) -> None:
+        """Run the automatic pipeline for one page."""
+        from mangatl.core.config import RunConfig
+        from mangatl.gui.pipeline_bridge import build_default_service
+
+        page = list(self.project)[index]
+        try:
+            service = build_default_service(self.project)
+            summary = service.run(RunConfig(), only={page.name})
+        except Exception as exc:  # noqa: BLE001 - surface the failure in the GUI
+            QMessageBox.warning(self, "运行失败", str(exc))
+            return
+        self.refresh_pages()
+        self.load_page(index)
+        self.statusBar().showMessage(
+            f"{page.name}: 成功 {summary.ok}，失败 {summary.failed}，块 {summary.blocks}"
+        )
+
     def save(self) -> None:
         self.project.save()
         self.statusBar().showMessage("已保存 project.json")
+
+    def open_search(self) -> None:
+        dialog = GlobalSearchDialog(self.project, self)
+        dialog.jumpRequested.connect(self._jump_to_block)
+        dialog.exec()
+
+    def _jump_to_block(self, page_index: int, block_id: int) -> None:
+        self.load_page(page_index)
+        self.select_block(block_id)
 
     # -- selection --------------------------------------------------------
     def select_block(self, block_id: int) -> None:
@@ -248,6 +353,7 @@ class MainWindow(QMainWindow):
         self.editor.page.blocks = [TextBlock.from_dict(item) for item in snapshot]
         self.editor.project.save()
         self.canvas.set_blocks(self.editor.page.blocks)
+        self.refresh_pages()
         self.statusBar().showMessage("已撤销")
 
     def apply_text(self) -> None:
@@ -260,6 +366,7 @@ class MainWindow(QMainWindow):
         block.role = self.role_box.currentText()
         self.editor.project.save()
         self.canvas.set_blocks(self.editor.page.blocks, [block.id])
+        self.refresh_pages()
         self.statusBar().showMessage(f"已更新 #{block.id}")
 
     def reocr_block(self) -> None:
@@ -285,14 +392,15 @@ class MainWindow(QMainWindow):
             TranslationError,
         )
 
-        translator = OpenAiTranslator(LlmConfig.from_env())
         try:
-            translator.translate([block], {"target_lang": "简体中文"})
+            translator = OpenAiTranslator(LlmConfig.from_env())
         except TranslationError as exc:
-            QMessageBox.warning(self, "翻译失败", str(exc))
+            QMessageBox.warning(self, "翻译不可用", str(exc))
             return
+        translator.translate([block], {"target_lang": "简体中文"})
         self.translation_edit.setPlainText(block.translation)
         self.editor.project.save()
+        self.refresh_pages()
 
     def delete_block(self) -> None:
         block = self._selected()
@@ -302,6 +410,7 @@ class MainWindow(QMainWindow):
         self.editor.remove_blocks([block])
         self.selected_id = None
         self.canvas.set_blocks(self.editor.page.blocks)
+        self.refresh_pages()
         self.statusBar().showMessage("已删除")
 
     def rerender(self) -> None:
@@ -310,6 +419,7 @@ class MainWindow(QMainWindow):
         path = self.editor.rerender()
         self.canvas.show_image(path)
         self.canvas.set_blocks(self.editor.page.blocks)
+        self.refresh_pages()
         self.statusBar().showMessage(f"已排版 -> {path}")
 
     def open_result(self) -> None:
@@ -317,7 +427,7 @@ class MainWindow(QMainWindow):
             return
         path = self.editor.result_path
         if path.is_file():
-            os.startfile(path)  # noqa: S606 - opening a local file is intended
+            os.startfile(path)  # noqa: S606 - open a local file
 
     # -- region actions ---------------------------------------------------
     def on_lasso(self, points: list) -> None:
@@ -341,6 +451,7 @@ class MainWindow(QMainWindow):
         self._snapshot()
         added = self.editor.redetect(self.region or [])
         self.canvas.set_blocks(self.editor.page.blocks)
+        self.refresh_pages()
         self.statusBar().showMessage(f"区域检测：新增 {len(added)} 块")
 
     def erase_region(self) -> None:
@@ -350,6 +461,7 @@ class MainWindow(QMainWindow):
         path = self.editor.erase_region(self.region or [])
         self.canvas.show_image(path)
         self.canvas.set_blocks(self.editor.page.blocks)
+        self.refresh_pages()
         self.statusBar().showMessage(f"区域擦除 -> {path}")
 
     def add_region_block(self) -> None:

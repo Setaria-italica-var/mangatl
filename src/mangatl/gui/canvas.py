@@ -86,6 +86,10 @@ class PageCanvas(QGraphicsView):
             self.scene().addItem(item)
             self._overlay_items[block.id] = item
 
+    def rotate_view(self) -> None:
+        """Rotate the view 90 degrees clockwise (the file is untouched)."""
+        self.rotate(90)
+
     def fit(self) -> None:
         """Fit the page into the viewport."""
         if self._pixmap_item is not None:
