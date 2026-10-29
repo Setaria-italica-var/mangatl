@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QProcess, Qt, QTimer
+from PySide6.QtCore import QProcess, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -117,7 +117,9 @@ class Row:
 
 
 class BatchSheet(QWidget):
-    """Range + stages + subprocess monitor."""
+    """Run panel: single page, or a range with subprocess monitoring."""
+
+    runCurrentRequested = Signal()
 
     def __init__(
         self,
@@ -142,7 +144,36 @@ class BatchSheet(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 8, 10, 8)
-        layout.setSpacing(6)
+        layout.setSpacing(4)
+
+        row_buttons = QHBoxLayout()
+        self.btn_current = PrimaryPushButton(FIF.PLAY, "运行当前页")
+        self.btn_current.clicked.connect(self.runCurrentRequested.emit)
+        row_buttons.addWidget(self.btn_current)
+        self.btn_start = PushButton(FIF.SYNC, "开始批量")
+        self.btn_start.clicked.connect(self.start)
+        row_buttons.addWidget(self.btn_start)
+        self.btn_stop = PushButton(FIF.CLOSE, "停止")
+        self.btn_stop.setEnabled(False)
+        self.btn_stop.clicked.connect(self.stop)
+        row_buttons.addWidget(self.btn_stop)
+        self.btn_retry = PushButton(FIF.RETURN, "重试失败")
+        self.btn_retry.setEnabled(False)
+        self.btn_retry.clicked.connect(self.retry_failed)
+        row_buttons.addWidget(self.btn_retry)
+        self.btn_export = PushButton(FIF.SAVE, "导出日志")
+        self.btn_export.clicked.connect(self.export_log)
+        row_buttons.addWidget(self.btn_export)
+        row_buttons.addStretch(1)
+        layout.addLayout(row_buttons)
+
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setFixedHeight(10)
+        layout.addWidget(self.progress)
+
+        self.heartbeat = CaptionLabel("等待开始")
+        layout.addWidget(self.heartbeat)
 
         row_range = QHBoxLayout()
         row_range.addWidget(BodyLabel("页码范围"))
@@ -150,11 +181,12 @@ class BatchSheet(QWidget):
         self.end_box = QSpinBox()
         for box in (self.start_box, self.end_box):
             box.setRange(1, 9999)
-            box.setMinimumWidth(88)
+            box.setMinimumWidth(72)
             box.setAlignment(Qt.AlignmentFlag.AlignCenter)
             box.valueChanged.connect(self._range_edited)
-            row_range.addWidget(box)
+        row_range.addWidget(self.start_box)
         row_range.addWidget(CaptionLabel("到"))
+        row_range.addWidget(self.end_box)
         row_range.addStretch(1)
         self.all_box = CheckBox("全部")
         self.all_box.setChecked(True)
@@ -188,24 +220,6 @@ class BatchSheet(QWidget):
         row_options.addStretch(1)
         layout.addLayout(row_options)
 
-        row_buttons = QHBoxLayout()
-        self.btn_start = PrimaryPushButton(FIF.PLAY, "开始")
-        self.btn_start.clicked.connect(self.start)
-        row_buttons.addWidget(self.btn_start)
-        self.btn_stop = PushButton(FIF.CLOSE, "停止")
-        self.btn_stop.setEnabled(False)
-        self.btn_stop.clicked.connect(self.stop)
-        row_buttons.addWidget(self.btn_stop)
-        self.btn_retry = PushButton(FIF.SYNC, "重试失败页")
-        self.btn_retry.setEnabled(False)
-        self.btn_retry.clicked.connect(self.retry_failed)
-        row_buttons.addWidget(self.btn_retry)
-        self.btn_export = PushButton(FIF.SAVE, "导出日志")
-        self.btn_export.clicked.connect(self.export_log)
-        row_buttons.addWidget(self.btn_export)
-        row_buttons.addStretch(1)
-        layout.addLayout(row_buttons)
-
         self.warning_bar = QWidget()
         warn_layout = QHBoxLayout(self.warning_bar)
         warn_layout.setContentsMargins(0, 0, 0, 0)
@@ -220,22 +234,16 @@ class BatchSheet(QWidget):
         self.warning_bar.setVisible(False)
         layout.addWidget(self.warning_bar)
 
-        self.progress = QProgressBar()
-        self.progress.setRange(0, 100)
-        layout.addWidget(self.progress)
-
-        self.heartbeat = CaptionLabel("等待开始")
-        layout.addWidget(self.heartbeat)
-
         self.table = TableWidget()
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["页", "状态", "块", "耗时"])
         self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setMinimumHeight(140)
         layout.addWidget(self.table, 2)
 
         self.log = QTextEdit()
         self.log.setReadOnly(True)
-        self.log.setFixedHeight(96)
+        self.log.setFixedHeight(76)
         self.log.setPlaceholderText("运行日志（子进程 stderr + 事件）")
         layout.addWidget(self.log)
 
@@ -291,6 +299,18 @@ class BatchSheet(QWidget):
                 if seconds:
                     self.table.setItem(row, 3, QTableWidgetItem(f"{seconds:.1f}s"))
                 return
+
+    def append(self, text: str) -> None:
+        """Public log hook used by the window."""
+        self._append_log(text)
+
+    def run_single(self, page_number: int) -> None:
+        """Run one page (1-based) through the same child process."""
+        if self.is_running():
+            self._append_log("已有任务在运行，先停止再试")
+            return
+        self._append_log(f"运行第 {page_number} 页")
+        self._launch(str(page_number), self._selected_stages(), force=False, planned=1)
 
     def _append_log(self, text: str) -> None:
         self.log.append(f"[{time.strftime('%H:%M:%S')}] {text}")

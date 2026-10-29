@@ -43,7 +43,6 @@ SHEET_TITLES = {
     "blocks": "文本块",
     "search": "搜索",
     "run": "运行",
-    "batch": "批量",
     "settings": "设置",
 }
 
@@ -52,7 +51,6 @@ SHEET_ICONS = {
     "blocks": FIF.TILES,
     "search": FIF.SEARCH,
     "run": FIF.PLAY,
-    "batch": FIF.SYNC,
     "settings": FIF.SETTING,
 }
 
@@ -430,50 +428,6 @@ class SearchSheet(QWidget):
             self.jumpRequested.emit(int(page_index), int(block_id))
 
 
-class RunSheet(QWidget):
-    """Stage switches and run buttons for the automatic pipeline."""
-
-    runRequested = Signal(object, bool)
-
-    def __init__(self) -> None:
-        super().__init__()
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 8, 10, 8)
-
-        layout.addWidget(BodyLabel("阶段"))
-        self.checks: dict[str, CheckBox] = {}
-        for key, label in (
-            ("detect", "检测"),
-            ("ocr", "OCR"),
-            ("translate", "翻译"),
-            ("erase", "擦除"),
-            ("render", "排版"),
-        ):
-            box = CheckBox(label)
-            box.setChecked(True)
-            self.checks[key] = box
-            layout.addWidget(box)
-
-        self.btn_page = PrimaryPushButton(FIF.PLAY, "运行当前页")
-        self.btn_page.clicked.connect(lambda: self._run(False))
-        layout.addWidget(self.btn_page)
-        self.btn_all = PushButton(FIF.SYNC, "运行全部页")
-        self.btn_all.clicked.connect(lambda: self._run(True))
-        layout.addWidget(self.btn_all)
-
-        self.log = TextEdit()
-        self.log.setReadOnly(True)
-        self.log.setPlaceholderText("运行日志…")
-        layout.addWidget(self.log, 1)
-
-    def _run(self, all_pages: bool) -> None:
-        stages = tuple(key for key, box in self.checks.items() if box.isChecked())
-        self.runRequested.emit(stages, all_pages)
-
-    def append(self, message: str) -> None:
-        self.log.append(message)
-
-
 class SettingsSheet(QWidget):
     """Accent colour and environment overview."""
 
@@ -514,16 +468,13 @@ class SettingsSheet(QWidget):
 
 
 def build_sheets(project: Project, engines_provider=None) -> dict[str, QWidget]:
-    """Create the standard module panels."""
-    sheets: dict[str, QWidget] = {
+    """Create the standard module panels (run doubles as the batch panel)."""
+    from mangatl.gui.batch import BatchSheet
+
+    return {
         "editor": EditorSheet(),
         "blocks": BlocksSheet(),
         "search": SearchSheet(project),
-        "run": RunSheet(),
+        "run": BatchSheet(project, engines_provider),
         "settings": SettingsSheet(),
     }
-    if engines_provider is not None:
-        from mangatl.gui.batch import BatchSheet
-
-        sheets["batch"] = BatchSheet(project, engines_provider)
-    return sheets

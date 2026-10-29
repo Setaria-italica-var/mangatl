@@ -339,9 +339,10 @@ class MainWindow(QMainWindow):
         self.sheets["blocks"].blockSelected.connect(self.select_block)
         self.sheets["blocks"].blockEdited.connect(self.on_block_edited)
         self.sheets["search"].jumpRequested.connect(self._jump_to_block)
-        if "batch" in self.sheets:
-            self.sheets["batch"].finished = self.on_batch_finished
-        self.sheets["run"].runRequested.connect(self.on_run_requested)
+        self.sheets["run"].finished = self.on_batch_finished
+        self.sheets["run"].runCurrentRequested.connect(
+            lambda: self.run_page(self.page_index)
+        )
         self.sheets["settings"].accentChanged.connect(self.on_accent)
 
         self.rail_current = "editor"
@@ -417,8 +418,7 @@ class MainWindow(QMainWindow):
         self.page_list.blockSignals(False)
         self.sheets["search"].project = self.project
         self.sheets["search"].refresh()
-        if "batch" in self.sheets:
-            self.sheets["batch"].set_project(self.project)
+        self.sheets["run"].set_project(self.project)
         self._refresh_sheets()
 
     def _touch_page(self) -> None:
@@ -517,25 +517,12 @@ class MainWindow(QMainWindow):
         return {key: box.currentText() for key, box in self.engine_boxes.items()}
 
     def run_page(self, index: int) -> None:
-        from mangatl.core.config import RunConfig
-        from mangatl.gui.pipeline_bridge import build_default_service
-
-        page = list(self.project)[index]
-        try:
-            service = build_default_service(self.project, **self._engines())
-            summary = service.run(RunConfig(), only={page.name})
-        except Exception as exc:  # noqa: BLE001 - surface the failure in the GUI
-            QMessageBox.warning(self, "运行失败", str(exc))
+        """Run one page in the batch child process (never blocks the editor)."""
+        if not len(self.project) or self.sheets["run"].is_running():
             return
-        self.sheets["run"].append(
-            f"{page.name}: 成功 {summary.ok} 失败 {summary.failed} 块 {summary.blocks}"
-        )
-        self.view_mode = "result"
-        self.refresh_pages()
-        self.load_page(index, keep_selection=True)
-        self.statusBar().showMessage(
-            f"{page.name}: 成功 {summary.ok}，失败 {summary.failed}，块 {summary.blocks}"
-        )
+        self.show_module("run")
+        self.sheets["run"].run_single(index + 1)
+        self.statusBar().showMessage("已提交单页任务，进度见「运行」面板")
 
     def save(self) -> None:
         self.project.save()
@@ -977,29 +964,6 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("已添加文本块，输入内容后点“应用文本”")
 
     # -- run / theme ------------------------------------------------------
-    def on_run_requested(self, stages, all_pages: bool) -> None:
-        from mangatl.core.config import RunConfig
-        from mangatl.gui.pipeline_bridge import build_default_service
-
-        if not stages:
-            InfoBar.warning("未选择阶段", "至少勾选一个阶段", parent=self)
-            return
-        try:
-            service = build_default_service(self.project, **self._engines())
-            only = None if all_pages else {list(self.project)[self.page_index].name}
-            summary = service.run(RunConfig(stages=tuple(stages)), only=only)
-        except Exception as exc:  # noqa: BLE001 - show failures in the log
-            self.sheets["run"].append(f"运行失败：{exc}")
-            InfoBar.error("运行失败", str(exc), parent=self)
-            return
-        self.sheets["run"].append(
-            f"完成：成功 {summary.ok}，失败 {summary.failed}，"
-            f"跳过 {summary.skipped}，块 {summary.blocks}"
-        )
-        self.view_mode = "result"
-        self.refresh_pages()
-        self.load_page(self.page_index, keep_selection=True)
-
     def on_batch_finished(self) -> None:
         """Refresh pages and the current view after a batch run."""
         self.refresh_pages()
@@ -1128,8 +1092,7 @@ class MainWindow(QMainWindow):
         self.region = None
         self.canvas.clear_selection()
         self.sheets["search"].project = self.project
-        if "batch" in self.sheets:
-            self.sheets["batch"].set_project(self.project)
+        self.sheets["run"].set_project(self.project)
         self.setWindowTitle(f"mangatl — {folder.name}")
         self.refresh_pages()
         if len(self.project):
