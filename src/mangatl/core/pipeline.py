@@ -83,6 +83,7 @@ class PipelineService:
         self.renderer = renderer or PageRenderer()
         self.bubble_detector = bubble_detector
         self.ocr_judge = ocr_judge
+        self.verify_budget = 12
         self.on_event = on_event
 
     def run(self, config: RunConfig) -> RunSummary:
@@ -205,10 +206,12 @@ class PipelineService:
         suspects = [
             block
             for block in page.blocks
-            if len(block.ocr_candidates) >= 2 and block.ocr_score < 0.7
+            if block.ocr_candidates and block.ocr_score < 0.7
         ]
         if not suspects:
             return
+        suspects.sort(key=lambda block: block.ocr_score)
+        suspects = suspects[: max(1, int(self.verify_budget))]
         others = [block.text for block in page.blocks if block.text.strip()][:6]
         items = [(block.id, block.ocr_candidates) for block in suspects]
         picks = self.ocr_judge.choose_many(items, context=others)
@@ -217,7 +220,7 @@ class PipelineService:
             if 0 <= choice < len(block.ocr_candidates):
                 source, text = block.ocr_candidates[choice]
                 block.text = text
-                block.ocr_source = source
+                block.ocr_source = source if source else "llm_judge"
                 block.ocr_score = plausibility(text)
             if choice < 0 or confidence < 0.5 or block.ocr_score < 0.45:
                 block.needs_review = True

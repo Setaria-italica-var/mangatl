@@ -56,6 +56,7 @@ class HybridOcr:
         for block in blocks:
             if block.text.strip():
                 block.ocr_candidates = [(primary_name, block.text.strip())]
+                block.ocr_source = primary_name
         suspects = [block for block in blocks if weak(block.text)]
         if not suspects:
             return list(blocks)
@@ -75,6 +76,9 @@ class HybridOcr:
             if fallback_text.strip() and fallback_text.strip() != primary_text.strip():
                 candidates.append((fallback_name, fallback_text.strip()))
             block.ocr_candidates = candidates
+            block.ocr_source = (
+                fallback_name if block.text == fallback_text else primary_name
+            )
             if plausibility(block.text) < 0.5:
                 block.needs_review = True
             if not block.text.strip():
