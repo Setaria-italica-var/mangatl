@@ -168,6 +168,8 @@ class Mit48pxOcr:
                 "MIT48px needs torch and einops: uv pip install torch einops"
             ) from exc
 
+        import warnings
+
         from mangatl.adapters.ocr import mit48px_model as model_module
 
         self._dictionary = [
@@ -180,7 +182,11 @@ class Mit48pxOcr:
         for key in skip:
             state.pop(key, None)
         weights = state.get("model", state)
-        model = model_module.OCR(self._dictionary, 768)
+        # torch warns about nested tensors for the vendored custom encoder layer;
+        # it is a tuning hint, not a problem, and it repeats on every start.
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="enable_nested_tensor")
+            model = model_module.OCR(self._dictionary, 768)
         model.load_state_dict(weights, strict=False)
         model.eval()
         if self.device != "cpu":
