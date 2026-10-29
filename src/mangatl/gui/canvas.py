@@ -60,6 +60,7 @@ class PageCanvas(QGraphicsView):
         self._rubber_item: QGraphicsRectItem | None = None
         self._rubber_moved = False
         self._overlay_mode = "blocks"
+        self._region_enabled = True
         self._rotations: dict[int, float] = {}
         self._diff_item: QGraphicsPixmapItem | None = None
         self._points: list[QPointF] = []
@@ -107,8 +108,16 @@ class PageCanvas(QGraphicsView):
             self.fit()
 
     def set_overlay_mode(self, mode: str) -> None:
-        """``blocks`` (source), ``diff`` (erased) or ``text`` (result)."""
+        """``blocks`` (source), ``diff`` (erased) or ``text`` (result).
+
+        Each view owns one kind of selection: source and result select blocks,
+        erased selects a region to erase. Keeping them exclusive avoids the region
+        polygon and the block highlight interfering with each other.
+        """
         self._overlay_mode = mode
+        self._region_enabled = mode in {"blocks", "diff"}
+        if not self._region_enabled:
+            self.clear_selection()
 
     def show_erased_diff(self, source_path, erased_path) -> None:
         """Tint the pixels that differ between the page and its erased copy."""
@@ -219,7 +228,11 @@ class PageCanvas(QGraphicsView):
             self._pan_start = event.position()
             event.accept()
             return
-        if event.button() == Qt.MouseButton.LeftButton and self._mode in {"lasso", "rect"}:
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._mode in {"lasso", "rect"}
+            and self._region_enabled
+        ):
             self._points = [position]
             self._update_preview()
             event.accept()
@@ -269,7 +282,7 @@ class PageCanvas(QGraphicsView):
                 }
                 event.accept()
                 return
-            if self._mode == "select":
+            if self._mode == "select" and self._overlay_mode in {"blocks", "text"}:
                 self._start_rubber(position, "add")
                 event.accept()
                 return
@@ -380,6 +393,7 @@ class PageCanvas(QGraphicsView):
         self._rubber = {"start": position, "mode": mode}
         self._rubber_moved = False
         self._overlay_mode = "blocks"
+        self._region_enabled = True
         self._rotations: dict[int, float] = {}
         self._diff_item: QGraphicsPixmapItem | None = None
         self._clear_rubber_item()

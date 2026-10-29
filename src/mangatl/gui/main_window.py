@@ -258,21 +258,22 @@ class MainWindow(QMainWindow):
             "add": self.add_region_block,
         }
         actions[action]()
-        self._finish_selection_action(keep_blocks=action == "add")
+        self._finish_selection_action()
 
-    def _finish_selection_action(self, keep_blocks: bool = False) -> None:
-        """End a region action: drop the region, the block highlights and the bar."""
+    def _clear_region(self) -> None:
+        """Forget the lasso/rectangle; block selection is untouched."""
         self.region = None
+        self.canvas.clear_selection()
+
+    def _finish_selection_action(self, keep_blocks: bool = True) -> None:
+        """A region action consumed the region: drop it but keep block selection."""
+        self._clear_region()
         if not keep_blocks:
             self.selected_ids = []
             self.selected_id = None
-        self.canvas.clear_selection()
-        if self.editor is not None:
-            self.canvas.set_blocks(
-                self.editor.page.blocks, self.selected_ids if keep_blocks else ()
-            )
-            if not keep_blocks:
-                self.sheets["editor"].show_block(None)
+            if self.editor is not None:
+                self.canvas.set_blocks(self.editor.page.blocks)
+            self.sheets["editor"].show_block(None)
 
     def _cancel_selection(self) -> None:
         self.canvas.clear_selection()
@@ -628,9 +629,8 @@ class MainWindow(QMainWindow):
             InfoBar.info("需要选区", "先框选一块区域，或选中若干文本块", parent=self)
             return
         self._snapshot()
-        path = self.editor.restore_region(points)
-        self.canvas.show_image(path)
-        self.canvas.set_blocks(self.editor.page.blocks)
+        self.editor.restore_region(points)
+        self.show_view("erased", quiet=True)
         self._touch_page()
         self._schedule_render()
         self._finish_selection_action()
@@ -836,9 +836,7 @@ class MainWindow(QMainWindow):
             return
         self._snapshot()
         path = self.editor.erase_region(self.region or [])
-        self.view_mode = "erased"
-        self.canvas.show_image(path)
-        self.canvas.set_blocks(self.editor.page.blocks)
+        self.show_view("erased", quiet=True)
         self._touch_page()
         self._schedule_render()
         self._finish_selection_action()
@@ -940,12 +938,19 @@ class MainWindow(QMainWindow):
             self.canvas.set_overlay_mode(
                 {"source": "blocks", "erased": "diff", "result": "text"}[mode]
             )
-            self.canvas.show_image(path, keep_selection=True, preserve_view=True)
+            self.canvas.show_image(
+                path, keep_selection=mode == "erased", preserve_view=True
+            )
             if mode == "erased" and self.editor.erased_path.is_file():
                 self.canvas.show_erased_diff(
                     self.editor.image_path, self.editor.erased_path
                 )
-            self.canvas.set_blocks(self.editor.page.blocks, self.selected_ids)
+            if mode == "erased":
+                # Erased view is region-only: no block boxes, no block highlight.
+                self._clear_region()
+                self.canvas.set_blocks(self.editor.page.blocks)
+            else:
+                self.canvas.set_blocks(self.editor.page.blocks, self.selected_ids)
         self.btn_view_source.setChecked(mode == "source")
         self.btn_view_erased.setChecked(mode == "erased")
         self.btn_view_result.setChecked(mode == "result")
