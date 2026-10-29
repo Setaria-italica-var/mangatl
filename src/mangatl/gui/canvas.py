@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
     QGraphicsView,
 )
 
+from mangatl.gui.geometry import move_bbox, resize_bbox
+
 ROLE_COLORS = {
     "dialogue": QColor(64, 158, 255, 70),
     "sfx": QColor(255, 170, 60, 80),
@@ -29,6 +31,7 @@ class PageCanvas(QGraphicsView):
     lassoFinished = Signal(list)
     rectFinished = Signal(tuple)
     cursorMoved = Signal(int, int)
+    blockGeometryChanged = Signal(int, tuple)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -43,6 +46,9 @@ class PageCanvas(QGraphicsView):
         self._preview: QGraphicsPolygonItem | None = None
         self._mode = "select"
         self._overlay_opacity = 1.0
+        self._selected_id: int | None = None
+        self._handle_items: dict[str, QGraphicsRectItem] = {}
+        self._drag: dict | None = None
         self._points: list[QPointF] = []
         self._panning = False
         self._pan_start = QPointF()
@@ -75,6 +81,8 @@ class PageCanvas(QGraphicsView):
         for item in self._overlay_items.values():
             self.scene().removeItem(item)
         self._overlay_items.clear()
+        self._clear_handles()
+        self._selected_id = selected_ids[0] if selected_ids else None
         for block in blocks:
             x1, y1, x2, y2 = block.bbox
             colour = QColor(ROLE_COLORS.get(block.role, QColor(200, 200, 200, 60)))
@@ -89,6 +97,8 @@ class PageCanvas(QGraphicsView):
             item.setData(0, block.id)
             self.scene().addItem(item)
             self._overlay_items[block.id] = item
+            if block.id == self._selected_id:
+                self._build_handles(block.bbox)
 
     def set_overlay_opacity(self, value: int) -> None:
         """Set block overlay opacity, 0-100 (100 = fully visible)."""
@@ -126,8 +136,26 @@ class PageCanvas(QGraphicsView):
             return
         if event.button() == Qt.MouseButton.LeftButton:
             item = self.itemAt(event.position().toPoint())
+            if isinstance(item, QGraphicsRectItem) and item.data(1) is not None:
+                self._drag = {
+                    "mode": "resize",
+                    "handle": str(item.data(1)),
+                    "block": int(item.data(2)),
+                    "start": position,
+                    "bbox": self._rect_of(int(item.data(2))),
+                }
+                event.accept()
+                return
             if isinstance(item, QGraphicsRectItem) and item.data(0) is not None:
-                self.blockClicked.emit(int(item.data(0)))
+                block_id = int(item.data(0))
+                self.blockClicked.emit(block_id)
+                self._drag = {
+                    "mode": "move",
+                    "handle": "",
+                    "block": block_id,
+                    "start": position,
+                    "bbox": self._rect_of(block_id),
+                }
                 event.accept()
                 return
         super().mousePressEvent(event)
@@ -145,6 +173,23 @@ class PageCanvas(QGraphicsView):
                 self.verticalScrollBar().value() - int(delta.y())
             )
             return
+        if self._drag is not None:
+            start = self._drag["start"]
+            dx, dy = int(position.x() - start.x()), int(position.y() - start.y())
+            bbox = self._drag["bbox"]
+            if self._drag["mode"] == "move":
+                new_bbox = move_bbox(bbox, dx, dy, *self._page_size())
+            else:
+                new_bbox = resize_bbox(bbox, self._drag["handle"], dx, dy)
+                width, height = self._page_size()
+                new_bbox = (
+                    max(0, new_bbox[0]),
+                    max(0, new_bbox[1]),
+                    min(width, new_bbox[2]),
+                    min(height, new_bbox[3]),
+                )
+            self._show_bbox(self._drag["block"], new_bbox)
+            return
         if self._mode in {"lasso", "rect"} and self._points:
             if self._mode == "rect":
                 self._points = [self._points[0], position]
@@ -157,6 +202,16 @@ class PageCanvas(QGraphicsView):
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802 - Qt name
         if event.button() == Qt.MouseButton.MiddleButton and self._panning:
             self._panning = False
+            return
+        if self._drag is not None:
+            item = self._overlay_items.get(int(self._drag["block"]))
+            if item is not None:
+                rect = item.rect()
+                self.blockGeometryChanged.emit(
+                    int(self._drag["block"]),
+                    (int(rect.x()), int(rect.y()), int(rect.right()), int(rect.bottom())),
+                )
+            self._drag = None
             return
         if self._mode in {"lasso", "rect"} and self._points:
             points = [(point.x(), point.y()) for point in self._points]
@@ -187,6 +242,55 @@ class PageCanvas(QGraphicsView):
         item.setBrush(QBrush(QColor(120, 220, 255, 40)))
         self.scene().addItem(item)
         self._preview = item
+
+    def _page_size(self) -> tuple[int, int]:
+        rect = self.scene().sceneRect()
+        return int(rect.width()), int(rect.height())
+
+    def _rect_of(self, block_id: int) -> tuple[int, int, int, int]:
+        item = self._overlay_items.get(block_id)
+        if item is None:
+            return (0, 0, 8, 8)
+        rect = item.rect()
+        return (int(rect.x()), int(rect.y()), int(rect.right()), int(rect.bottom()))
+
+    def _show_bbox(self, block_id: int, bbox: tuple[int, int, int, int]) -> None:
+        item = self._overlay_items.get(block_id)
+        if item is None:
+            return
+        x1, y1, x2, y2 = bbox
+        item.setRect(QRectF(x1, y1, x2 - x1, y2 - y1))
+        self._build_handles(bbox)
+
+    def _clear_handles(self) -> None:
+        for item in self._handle_items.values():
+            self.scene().removeItem(item)
+        self._handle_items.clear()
+
+    def _build_handles(self, bbox: tuple[int, int, int, int]) -> None:
+        self._clear_handles()
+        x1, y1, x2, y2 = bbox
+        cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+        positions = {
+            "nw": (x1, y1),
+            "n": (cx, y1),
+            "ne": (x2, y1),
+            "e": (x2, cy),
+            "se": (x2, y2),
+            "s": (cx, y2),
+            "sw": (x1, y2),
+            "w": (x1, cy),
+        }
+        size = 9
+        for name, (px, py) in positions.items():
+            handle = QGraphicsRectItem(px - size / 2, py - size / 2, size, size)
+            handle.setBrush(QBrush(QColor(255, 255, 255)))
+            handle.setPen(QPen(QColor(40, 40, 40), 1))
+            handle.setData(1, name)
+            handle.setData(2, self._selected_id)
+            handle.setZValue(10)
+            self.scene().addItem(handle)
+            self._handle_items[name] = handle
 
     def _clear_preview(self) -> None:
         if self._preview is not None:

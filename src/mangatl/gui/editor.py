@@ -95,6 +95,16 @@ class PageEditor:
         self._refresh_role(block)
         self._after_edit()
 
+    def set_bbox(self, block: TextBlock, bbox: tuple[int, int, int, int]) -> None:
+        """Move or resize a block from the canvas."""
+        width, height = self._size()
+        old = block.bbox
+        box = clamp_bbox(tuple(int(v) for v in bbox), width, height)
+        block.bbox = box
+        if block.bubble_bbox == old:
+            block.bubble_bbox = box
+        self.project.save()
+
     def set_style(self, block: TextBlock, style: dict) -> None:
         """Persist manual typography overrides for one block."""
         block.style = {key: value for key, value in style.items() if value not in ("", 0, 0.0)}

@@ -75,3 +75,59 @@ def scale_bbox(
         int(round(x2 * factor)) + offset[0],
         int(round(y2 * factor)) + offset[1],
     )
+
+
+HANDLES = ("nw", "n", "ne", "e", "se", "s", "sw", "w")
+
+
+def move_bbox(
+    bbox: tuple[int, int, int, int], dx: int, dy: int, width: int, height: int
+) -> tuple[int, int, int, int]:
+    """Translate a box, keeping it fully inside the page.
+
+    >>> move_bbox((10, 10, 50, 40), -100, 0, 200, 200)
+    (0, 10, 40, 40)
+    """
+    x1, y1, x2, y2 = bbox
+    box_width, box_height = x2 - x1, y2 - y1
+    left = max(0, min(x1 + dx, width - box_width))
+    top = max(0, min(y1 + dy, height - box_height))
+    return (left, top, left + box_width, top + box_height)
+
+
+def resize_bbox(
+    bbox: tuple[int, int, int, int],
+    handle: str,
+    dx: int,
+    dy: int,
+    min_size: int = 8,
+) -> tuple[int, int, int, int]:
+    """Resize a box by dragging one of its eight handles.
+
+    ``handle`` is one of ``nw n ne e se s sw w``; ``dx``/``dy`` are the drag delta.
+
+    >>> resize_bbox((10, 10, 60, 50), "se", 10, 5)
+    (10, 10, 70, 55)
+    >>> resize_bbox((10, 10, 60, 50), "nw", 100, 100)
+    (52, 42, 60, 50)
+    """
+    x1, y1, x2, y2 = bbox
+    if "w" in handle:
+        x1 += dx
+    if "e" in handle:
+        x2 += dx
+    if "n" in handle:
+        y1 += dy
+    if "s" in handle:
+        y2 += dy
+    if x2 - x1 < min_size:
+        if "w" in handle:
+            x1 = x2 - min_size
+        else:
+            x2 = x1 + min_size
+    if y2 - y1 < min_size:
+        if "n" in handle:
+            y1 = y2 - min_size
+        else:
+            y2 = y1 + min_size
+    return (x1, y1, x2, y2)

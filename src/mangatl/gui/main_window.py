@@ -135,6 +135,7 @@ class MainWindow(QMainWindow):
         self.canvas = PageCanvas(self)
         self.canvas.setMinimumWidth(420)
         self.canvas.blockClicked.connect(self.select_block)
+        self.canvas.blockGeometryChanged.connect(self.on_geometry_changed)
         self.canvas.lassoFinished.connect(self.on_lasso)
         self.canvas.rectFinished.connect(self.on_rect)
         self.canvas.cursorMoved.connect(
@@ -420,6 +421,19 @@ class MainWindow(QMainWindow):
         self.canvas.set_blocks(self.editor.page.blocks)
         self.refresh_pages()
         self.statusBar().showMessage("已撤销")
+
+    def on_geometry_changed(self, block_id: int, bbox: tuple) -> None:
+        """Persist a block moved or resized on the canvas."""
+        if self.editor is None:
+            return
+        block = next((b for b in self.editor.page.blocks if b.id == block_id), None)
+        if block is None:
+            return
+        self._snapshot()
+        self.editor.set_bbox(block, bbox)
+        self.canvas.set_blocks(self.editor.page.blocks, [block_id])
+        self.refresh_pages()
+        self.statusBar().showMessage(f"#{block_id} 已调整框 {block.bbox}")
 
     def on_block_edited(
         self, block_id: int, text: str, translation: str, role: str
