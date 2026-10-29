@@ -143,39 +143,53 @@ class BatchSheet(QWidget):
         self._stdout_buffer = b""
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 8, 10, 8)
-        layout.setSpacing(4)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(8)
 
-        row_buttons = QHBoxLayout()
+        row_main = QHBoxLayout()
+        row_main.setSpacing(8)
         self.btn_current = PrimaryPushButton(FIF.PLAY, "运行当前页")
+        self.btn_current.setMinimumHeight(32)
         self.btn_current.clicked.connect(self.runCurrentRequested.emit)
-        row_buttons.addWidget(self.btn_current)
-        self.btn_start = PushButton(FIF.SYNC, "开始批量")
+        row_main.addWidget(self.btn_current, 1)
+        self.btn_start = PrimaryPushButton(FIF.SYNC, "开始批量")
+        self.btn_start.setMinimumHeight(32)
         self.btn_start.clicked.connect(self.start)
-        row_buttons.addWidget(self.btn_start)
+        row_main.addWidget(self.btn_start, 1)
+        layout.addLayout(row_main)
+
+        row_secondary = QHBoxLayout()
+        row_secondary.setSpacing(8)
         self.btn_stop = PushButton(FIF.CLOSE, "停止")
         self.btn_stop.setEnabled(False)
         self.btn_stop.clicked.connect(self.stop)
-        row_buttons.addWidget(self.btn_stop)
+        row_secondary.addWidget(self.btn_stop, 1)
         self.btn_retry = PushButton(FIF.RETURN, "重试失败")
         self.btn_retry.setEnabled(False)
         self.btn_retry.clicked.connect(self.retry_failed)
-        row_buttons.addWidget(self.btn_retry)
+        row_secondary.addWidget(self.btn_retry, 1)
         self.btn_export = PushButton(FIF.SAVE, "导出日志")
         self.btn_export.clicked.connect(self.export_log)
-        row_buttons.addWidget(self.btn_export)
-        row_buttons.addStretch(1)
-        layout.addLayout(row_buttons)
+        row_secondary.addWidget(self.btn_export, 1)
+        layout.addLayout(row_secondary)
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
-        self.progress.setFixedHeight(10)
+        self.progress.setFixedHeight(8)
+        self.progress.setTextVisible(False)
+        self.progress.setStyleSheet(
+            "QProgressBar { background: #262626; border: 1px solid #3a3a3a;"
+            " border-radius: 4px; }"
+            "QProgressBar::chunk { background: #4f9cf9; border-radius: 4px; }"
+        )
         layout.addWidget(self.progress)
 
         self.heartbeat = CaptionLabel("等待开始")
+        self.heartbeat.setStyleSheet("color: #9aa0a8;")
         layout.addWidget(self.heartbeat)
 
         row_range = QHBoxLayout()
+        row_range.setSpacing(8)
         row_range.addWidget(BodyLabel("页码范围"))
         self.start_box = QSpinBox()
         self.end_box = QSpinBox()
@@ -195,6 +209,7 @@ class BatchSheet(QWidget):
         layout.addLayout(row_range)
 
         row_stages = QHBoxLayout()
+        row_stages.setSpacing(8)
         row_stages.addWidget(BodyLabel("阶段"))
         self.stage_boxes: dict[str, CheckBox] = {}
         for key in STAGE_ORDER:
@@ -206,6 +221,7 @@ class BatchSheet(QWidget):
         layout.addLayout(row_stages)
 
         row_options = QHBoxLayout()
+        row_options.setSpacing(12)
         self.resume_box = CheckBox("跳过已完成")
         self.resume_box.setChecked(True)
         row_options.addWidget(self.resume_box)
@@ -238,13 +254,23 @@ class BatchSheet(QWidget):
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["页", "状态", "块", "耗时"])
         self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.setMinimumHeight(140)
-        layout.addWidget(self.table, 2)
+        self.table.setMinimumHeight(160)
+        layout.addWidget(self.table, 1)
 
         self.log = QTextEdit()
         self.log.setReadOnly(True)
-        self.log.setFixedHeight(76)
+        self.log.setFixedHeight(96)
         self.log.setPlaceholderText("运行日志（子进程 stderr + 事件）")
+        self.log.setStyleSheet(
+            "QTextEdit {"
+            " background: #1b1b1b;"
+            " color: #dcdcdc;"
+            " border: 1px solid #3a3a3a;"
+            " border-radius: 6px;"
+            " padding: 4px;"
+            "}"
+        )
+        layout.addWidget(CaptionLabel("运行日志"))
         layout.addWidget(self.log)
 
         self._watchdog = QTimer(self)
