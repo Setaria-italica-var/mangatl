@@ -146,7 +146,7 @@ class PipelineService:
                     source = image_path  # no erase output yet: letter the original
                 destination = self.project.directory / config.result_dirname / page.name
                 lettered = [block for block in page.blocks if should_erase(block, config)]
-                self.renderer.render(source, lettered, destination)
+                self.renderer.render(source, lettered, destination, style_source=image_path)
             elif stage == "erase":
                 # Roles are derived from the OCR text, so recompute them even
                 # when the OCR stage was skipped on a resumed run.
@@ -348,7 +348,7 @@ def annotate_with_model(page: Page, image_path: Path, detector) -> bool:
     if detector is None or not getattr(detector, "available", False):
         return False
     try:
-        from mangatl.adapters.detectors.bubbles import covered
+        from mangatl.adapters.detectors.bubbles import coverage, covered
 
         if hasattr(detector, "detect_multi"):
             bubbles, index, _scores = detector.detect_multi(image_path, page.blocks)
@@ -361,6 +361,8 @@ def annotate_with_model(page: Page, image_path: Path, detector) -> bool:
         return False
     for block in page.blocks:
         block.in_bubble = covered(block.bbox, bubbles)
+        best = max(bubbles, key=lambda bubble: coverage(block.bbox, [bubble]), default=None)
+        block.bubble_bbox = best.bbox if best is not None else None
     return True
 
 

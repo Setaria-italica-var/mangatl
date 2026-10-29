@@ -53,11 +53,19 @@ class PageRenderer:
         image_path: Path,
         blocks: Sequence[TextBlock],
         destination: Path,
+        style_source: Path | None = None,
     ) -> Path:
-        """Write the lettered page to ``destination`` and return it."""
+        """Write the lettered page to ``destination`` and return it.
+
+        ``style_source`` is the page *before* erasing: colour and stroke width must
+        be measured while the glyphs are still there, otherwise the estimator sees
+        only the bubble paper and produces pale grey text.
+        """
         with Image.open(image_path) as handle:
             page = handle.convert("RGBA")
-        pixels = page.copy()
+        style_pixels = _rgb_array(Image.open(style_source).convert("RGB")) if style_source else None
+        if style_pixels is None:
+            style_pixels = _rgb_array(page.copy())
         draw = ImageDraw.Draw(page)
 
         for block in blocks:
@@ -65,7 +73,7 @@ class PageRenderer:
             if not text or block.role == "texture":
                 continue
             style = estimate_style(
-                _rgb_array(pixels), None, block.bbox, vertical=block.vertical
+                style_pixels, None, block.bbox, vertical=block.vertical
             )
             self._draw_block(draw, page, block, text, style)
 
@@ -82,39 +90,55 @@ class PageRenderer:
         text: str,
         style: TextStyle,
     ) -> None:
-        x1, y1, x2, y2 = block.bbox
+        box = self._layout_box(block)
+        x1, y1, x2, y2 = box
         width, height = max(1, x2 - x1), max(1, y2 - y1)
         font_ref = fonts.resolve(style.category, style.weight) or fonts.resolve("sans")
         if font_ref is None:
             return  # no CJK font on this machine: skip rather than draw boxes
 
         start = max(self.config.min_font_size + 2, int(style.font_size * 1.1))
+        # Reserve room for the outline: a glyph of size S plus stroke occupies S+2*stroke.
+        text_width = max(1, width - 2 * self._stroke(style, start))
+        text_height = max(1, height - 2 * self._stroke(style, start))
         if block.vertical:
             layout = fit_vertical(
                 text,
-                width,
-                height,
+                text_width,
+                text_height,
                 font_ref,
                 start,
                 min_size=self.config.min_font_size,
                 column_spacing=self.config.column_spacing,
             )
-            self._draw_vertical(draw, page, block, layout, style, font_ref)
+            self._draw_vertical(draw, page, block, layout, style, font_ref, box)
         else:
             layout = fit_horizontal(
                 text,
-                width,
-                height,
+                text_width,
+                text_height,
                 font_ref,
                 start,
                 min_size=self.config.min_font_size,
                 line_spacing=self.config.line_spacing,
             )
-            self._draw_horizontal(draw, block, layout, style, font_ref)
+            self._draw_horizontal(draw, block, layout, style, font_ref, box)
 
         # Recompute rather than accumulate: an earlier run may have flagged this
         # block with a different font size, and stale flags are not actionable.
         block.needs_review = layout.overflow
+
+    def _layout_box(self, block: TextBlock) -> tuple[int, int, int, int]:
+        """Lettering area: the text box clipped to its bubble, with an inset."""
+        x1, y1, x2, y2 = block.bbox
+        if block.bubble_bbox is not None:
+            bx1, by1, bx2, by2 = block.bubble_bbox
+            x1, y1 = max(x1, bx1), max(y1, by1)
+            x2, y2 = min(x2, bx2), min(y2, by2)
+        inset = 3
+        if x2 - x1 > 2 * inset and y2 - y1 > 2 * inset:
+            x1, y1, x2, y2 = x1 + inset, y1 + inset, x2 - inset, y2 - inset
+        return x1, y1, x2, y2
 
     def _draw_horizontal(
         self,
@@ -123,9 +147,10 @@ class PageRenderer:
         layout: FitResult,
         style: TextStyle,
         font_ref: fonts.FontRef,
+        box: tuple[int, int, int, int],
     ) -> None:
         font = fonts.load(font_ref, layout.font_size)
-        x1, y1, x2, y2 = block.bbox
+        x1, y1, x2, y2 = box
         width = x2 - x1
         total = len(layout.lines) * layout.line_height
         top = y1 + ((y2 - y1) - total) / 2
@@ -160,9 +185,10 @@ class PageRenderer:
         layout: FitResult,
         style: TextStyle,
         font_ref: fonts.FontRef,
+        box: tuple[int, int, int, int],
     ) -> None:
         font = fonts.load(font_ref, layout.font_size)
-        x1, y1, x2, y2 = block.bbox
+        x1, y1, x2, y2 = box
         size = layout.font_size
         stroke = self._stroke(style, size)
         columns = layout.lines
