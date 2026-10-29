@@ -1,1 +1,1 @@
-"""PySide6 desktop UI. Displays rendered pixels only; never runs inference."""
+"""Desktop editor (PySide6). Importing this package requires Qt."""

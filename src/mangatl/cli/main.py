@@ -225,6 +225,9 @@ def _build_parser() -> argparse.ArgumentParser:
     demo.add_argument("--pages", type=int, default=6)
     demo.add_argument("--seed", type=int, default=7)
 
+    gui = sub.add_parser("gui", help="open the desktop editor on a project")
+    gui.add_argument("directory", type=Path, nargs="?", default=Path("."))
+
     check = sub.add_parser("translate-test", help="send one sentence to the configured LLM")
     check.add_argument("--text", default="おはよう")
     check.add_argument("--target-lang", default="Simplified Chinese")
@@ -548,6 +551,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_demo(args.directory, args.pages, args.seed)
     if args.command == "probe":
         return _run_probe(args.model)
+    if args.command == "gui":
+        from mangatl.gui.app import run
+
+        return run(args.directory)
     if args.command == "translate-test":
         return _run_translate_test(args.text, args.target_lang)
     if args.command == "inspect":
