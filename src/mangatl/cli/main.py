@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
@@ -214,6 +215,13 @@ def _build_parser() -> argparse.ArgumentParser:
     inspect = sub.add_parser("inspect", help="print the stored block decisions for a project")
     inspect.add_argument("directory", type=Path)
 
+    vision_test = sub.add_parser("vision-test", help="send one crop to the vision model")
+    vision_test.add_argument("page", type=Path)
+    vision_test.add_argument("--bbox", default="", help="x1,y1,x2,y2; whole page when omitted")
+    vision_test.add_argument("--model", default="")
+    vision_test.add_argument("--base-url", default="")
+    vision_test.add_argument("--timeout", type=float, default=90.0)
+
     bubbles_test = sub.add_parser("bubbles-test", help="run the bubble model on one page")
     bubbles_test.add_argument("page", type=Path)
     bubbles_test.add_argument("--model", default="data/models/bubble_detector.onnx")
@@ -350,6 +358,49 @@ def _run_fetch_models(args) -> int:
     return 0
 
 
+def _run_vision_test(page: Path, bbox: str, model: str, base_url: str, timeout: float) -> int:
+    """Read one crop with the configured vision model and report the score."""
+    from PIL import Image
+
+    from mangatl.adapters.ocr.vision import VisionConfig, VisionOcr
+    from mangatl.domain.plausibility import plausibility
+
+    if model:
+        os.environ["MANGATL_VISION_MODEL"] = model
+    if base_url:
+        os.environ["MANGATL_VISION_BASE_URL"] = base_url
+    config = VisionConfig.from_env()
+    config = VisionConfig(
+        base_url=config.base_url, api_key=config.api_key, model=config.model, timeout=timeout
+    )
+    reader = VisionOcr(config)
+    if not reader.available:
+        print(
+            "error: vision endpoint not configured (set --model/--base-url or MANGATL_VISION_*)",
+            file=sys.stderr,
+        )
+        return 2
+
+    with Image.open(page) as handle:
+        size = handle.size
+    if bbox:
+        try:
+            x1, y1, x2, y2 = (int(value) for value in bbox.split(","))
+        except ValueError:
+            print("error: --bbox must be x1,y1,x2,y2", file=sys.stderr)
+            return 2
+    else:
+        x1, y1, x2, y2 = 0, 0, size[0], size[1]
+
+    started = time.perf_counter()
+    text = reader.read(page, (x1, y1, x2, y2))
+    elapsed = time.perf_counter() - started
+    print(f"endpoint={config.base_url} model={config.model} crop={(x1, y1, x2, y2)}")
+    print(f"elapsed={elapsed:.2f}s plausibility={plausibility(text):.2f}")
+    print(repr(text))
+    return 0
+
+
 def _run_bubbles_test(page: Path, model_path: str, classes: int | None) -> int:
     """Show what the bubble model sees, class by class."""
     import numpy as np
@@ -478,6 +529,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_inspect(args.directory)
     if args.command == "fetch-models":
         return _run_fetch_models(args)
+    if args.command == "vision-test":
+        return _run_vision_test(
+            args.page, args.bbox, args.model, args.base_url, args.timeout
+        )
     if args.command == "bubbles-test":
         return _run_bubbles_test(args.page, args.model, args.classes)
     if args.command != "run":  # pragma: no cover - argparse enforces the choices
