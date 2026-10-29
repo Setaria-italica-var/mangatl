@@ -36,6 +36,7 @@ class RunConfig:
     require_translation: bool = True
     merge_fragments: bool = True
     verify_ocr: bool = True
+    two_pass_bubbles: bool = True
     verify_budget: int = 12
     page_scopes: tuple[str, ...] = ()
     bubble_model: str = "data/models/bubble_detector.onnx"

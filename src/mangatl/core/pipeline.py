@@ -144,6 +144,8 @@ class PipelineService:
                     if block.text.strip() and not block.ocr_candidates:
                         block.ocr_candidates = [(block.ocr_source, block.text.strip())]
                     block.ocr_score = plausibility(block.text) if block.text.strip() else 0.0
+                if config.two_pass_bubbles:
+                    self._second_pass_bubbles(page, image_path)
                 if config.verify_ocr:
                     self._verify_ocr(page, image_path)
                 assign_roles(page, config)
@@ -204,6 +206,93 @@ class PipelineService:
             ran_any = True
             self._emit(EVENT_STAGE_DONE, page.name, stage)
         return ran_any
+
+    def _second_pass_bubbles(self, page: Page, image_path: Path) -> None:
+        """Re-run bubble detection at a higher resolution for missed bubbles.
+
+        Only pages with plausible dialogue that sits outside every detected bubble
+        pay for this: the model often misses small or unusual bubbles at 640 px,
+        and a 960 px pass finds them without changing anything on normal pages.
+        """
+        detector = self.bubble_detector
+        if detector is None or not getattr(detector, "available", False):
+            return
+        from mangatl.adapters.detectors.bubbles import coverage, covered
+        suspects = [
+            block
+            for block in page.blocks
+            if not block.in_bubble
+            and block.text.strip()
+            and len(block.text.strip()) >= 2
+            and plausibility(block.text) >= 0.5
+        ]
+        if not suspects:
+            return
+        if page.size is None:
+            page.size = _image_size(image_path)
+        if page.size is None:
+            return
+        try:
+            bubbles = detector.detect_at(image_path, scale=1.5)
+        except Exception:  # a failed second pass must not break the page
+            bubbles = []
+
+        page_area = max(1, page.size[0] * page.size[1])
+        for block in suspects:
+            x1, y1, x2, y2 = block.bbox
+            block_area = max(1, (x2 - x1) * (y2 - y1))
+            usable = []
+            for bubble in bubbles:
+                bx1, by1, bx2, by2 = bubble.bbox
+                area = max(1, (bx2 - bx1) * (by2 - by1))
+                if area < 0.25 * block_area or area > 0.4 * page_area:
+                    continue
+                usable.append(bubble)
+            if not covered(block.bbox, usable):
+                continue
+            best = max(
+                usable, key=lambda bubble: coverage(block.bbox, [bubble]), default=None
+            )
+            if best is None:
+                continue
+            block.in_bubble = True
+            block.bubble_bbox = best.bbox
+            if coverage(block.bbox, [best]) < 0.9:
+                bx1, by1, bx2, by2 = best.bbox
+                block.erase_bbox = (max(x1, bx1), max(y1, by1), min(x2, bx2), min(y2, by2))
+            block.needs_review = False
+
+        remaining = [block for block in suspects if not block.in_bubble]
+        if remaining:
+            self._enclosed_fallback(remaining, image_path)
+
+    def _enclosed_fallback(self, blocks, image_path: Path) -> None:
+        """Last resort for small bubbles the detector never sees.
+
+        A block whose light background is closed nearby sits on bubble paper; a
+        sound effect printed on the artwork is not. Only small, plausible blocks
+        are promoted, so a panel-wide surface cannot swallow them.
+        """
+        from mangatl.adapters.imaging import bounded_background
+
+        try:
+            import numpy as np
+            from PIL import Image
+        except ImportError:  # pragma: no cover
+            return
+        with Image.open(image_path) as handle:
+            pixels = np.array(handle.convert("RGB"))
+        height, width = pixels.shape[:2]
+        page_area = max(1, width * height)
+        for block in blocks:
+            x1, y1, x2, y2 = block.bbox
+            if (x2 - x1) * (y2 - y1) > 0.03 * page_area:
+                continue
+            if not bounded_background(pixels, block.bbox):
+                continue
+            block.in_bubble = True
+            block.bubble_bbox = block.bbox
+            block.needs_review = False
 
     def _verify_ocr(self, page: Page, image_path: Path) -> None:
         """Ask the judge to pick between disagreeing engines.

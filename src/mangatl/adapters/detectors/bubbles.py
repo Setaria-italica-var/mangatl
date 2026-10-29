@@ -214,6 +214,36 @@ class BubbleDetector:
         """Whether the weights exist (the session itself is created lazily)."""
         return self.model_path.is_file()
 
+    def detect_at(self, image_path: Path, scale: float = 1.5) -> list[Bubble]:
+        """Detect bubbles on an upscaled copy of the page.
+
+        The ONNX graph has a fixed 640 px input, so a "higher resolution pass"
+        means enlarging the image before letterboxing and mapping the boxes back.
+        Small bubbles become large enough for the model to see them.
+        """
+        from PIL import Image
+
+        if scale <= 1.0:
+            return self.detect(image_path)
+        with Image.open(image_path) as handle:
+            page = handle.convert("RGB")
+            enlarged = page.resize(
+                (int(page.width * scale), int(page.height * scale)), Image.LANCZOS
+            )
+        bubbles = self._detect_image(enlarged)
+        return [
+            Bubble(
+                (
+                    int(round(bubble.bbox[0] / scale)),
+                    int(round(bubble.bbox[1] / scale)),
+                    int(round(bubble.bbox[2] / scale)),
+                    int(round(bubble.bbox[3] / scale)),
+                ),
+                bubble.score,
+            )
+            for bubble in bubbles
+        ]
+
     def detect_multi(
         self, image_path: Path, blocks=()
     ) -> tuple[list[Bubble], int | None, dict[int, float]]:
@@ -231,9 +261,8 @@ class BubbleDetector:
 
         session = self._get_session()
         with Image.open(image_path) as handle:
-            page = handle.convert("RGB")
-            page_size = page.size
-            image = np.asarray(page)
+            image = np.asarray(handle.convert("RGB"))
+            page_size = (image.shape[1], image.shape[0])
 
         canvas, scale, padding = letterbox(image, self.imgsz)
         tensor = canvas[:, :, ::-1].transpose(2, 0, 1)[None].astype(np.float32) / 255.0
@@ -271,9 +300,8 @@ class BubbleDetector:
 
         session = self._get_session()
         with Image.open(image_path) as handle:
-            page = handle.convert("RGB")
-            page_size = page.size
-            image = np.asarray(page)
+            image = np.asarray(handle.convert("RGB"))
+            page_size = (image.shape[1], image.shape[0])
 
         canvas, scale, padding = letterbox(image, self.imgsz)
         tensor = canvas[:, :, ::-1].transpose(2, 0, 1)[None].astype(np.float32) / 255.0
@@ -286,6 +314,18 @@ class BubbleDetector:
             padding,
             page_size,
             self.class_index,
+        )
+
+    def _detect_image(self, page) -> list[Bubble]:
+        """Run the model on an in-memory page."""
+        session = self._get_session()
+        image = np.asarray(page)
+        page_size = (image.shape[1], image.shape[0])
+        canvas, scale, padding = letterbox(image, self.imgsz)
+        tensor = canvas[:, :, ::-1].transpose(2, 0, 1)[None].astype(np.float32) / 255.0
+        output = session.run(None, {session.get_inputs()[0].name: tensor})[0]
+        return decode(
+            output, self.confidence, self.iou, scale, padding, page_size, self.class_index
         )
 
     def _get_session(self):
