@@ -17,7 +17,17 @@ TEXT_SUFFIXES = frozenset(
     {".md", ".txt", ".py", ".toml", ".yml", ".yaml", ".cfg", ".ini", ".json", ".css", ".html"}
 )
 SKIP_PARTS = frozenset(
-    {".git", ".venv", ".tmp", ".pytest-tmp", ".acl-reports", "__pycache__", "samples", "wheels"}
+    {
+        ".git",
+        ".venv",
+        ".tmp",
+        ".pytest-tmp",
+        ".acl-reports",
+        "__pycache__",
+        "samples",
+        "wheels",
+        "data",
+    }
 )
 
 
