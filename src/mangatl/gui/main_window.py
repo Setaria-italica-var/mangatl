@@ -105,10 +105,19 @@ class MainWindow(QMainWindow):
         return button
 
     def _build_toolbar(self) -> None:
+        """Toolbar grouped by task: file, select, view, navigate, act."""
         bar = QToolBar("工具", self)
         bar.setMovable(False)
+        bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.addToolBar(bar)
 
+        # file
+        bar.addWidget(
+            self._tool_button(FIF.FOLDER, "打开文件夹", self.open_folder_dialog)
+        )
+        bar.addSeparator()
+
+        # selection tools
         self.btn_select = self._tool_button(
             FIF.CLEAR_SELECTION, "选择", lambda: self._set_mode("select"), True
         )
@@ -121,36 +130,36 @@ class MainWindow(QMainWindow):
         self.btn_select.setChecked(True)
         for button in (self.btn_select, self.btn_lasso, self.btn_rect):
             bar.addWidget(button)
-
         bar.addSeparator()
+
+        # view
         bar.addWidget(
-            self._tool_button(FIF.FIT_PAGE, "适应窗口 (F/Home)", lambda: self.canvas.fit())
+            self._tool_button(FIF.FIT_PAGE, "适应窗口", lambda: self.canvas.fit())
         )
         bar.addWidget(
             self._tool_button(FIF.ROTATE, "旋转 90°", lambda: self.canvas.rotate_view())
         )
         bar.addWidget(
             self._tool_button(
-                FIF.LEFT_ARROW, "上一页", lambda: self.load_page(self.page_index - 1)
+                FIF.PAGE_LEFT, "上一页", lambda: self.load_page(self.page_index - 1)
             )
         )
         bar.addWidget(
             self._tool_button(
-                FIF.RIGHT_ARROW, "下一页", lambda: self.load_page(self.page_index + 1)
+                FIF.PAGE_RIGHT, "下一页", lambda: self.load_page(self.page_index + 1)
             )
         )
+        bar.addWidget(
+            self._tool_button(FIF.FULL_SCREEN, "全屏", self.toggle_fullscreen)
+        )
         bar.addSeparator()
+
+        # actions
         bar.addWidget(self._tool_button(FIF.SEARCH, "搜索", self.show_search))
         bar.addWidget(
             self._tool_button(
                 FIF.PLAY, "运行本页", lambda: self.run_page(self.page_index)
             )
-        )
-        bar.addWidget(
-            self._tool_button(FIF.FULL_SCREEN, "全屏 (F11)", self.toggle_fullscreen)
-        )
-        bar.addWidget(
-            self._tool_button(FIF.FOLDER, "打开文件夹", self.open_folder_dialog)
         )
         bar.addWidget(self._tool_button(FIF.SAVE, "保存", self.save))
         bar.addWidget(self._tool_button(FIF.RETURN, "撤销", self.undo))

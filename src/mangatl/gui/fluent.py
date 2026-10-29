@@ -26,6 +26,11 @@ QToolBar {
     padding: 4px 6px;
     spacing: 3px;
 }
+QToolBar::separator {
+    background: #464646;
+    width: 1px;
+    margin: 5px 7px;
+}
 QStatusBar { background: #2b2b2b; color: #9a9a9a; }
 QMenu {
     background: #2b2b2b;
