@@ -73,6 +73,7 @@ class MainWindow(QMainWindow):
         self._preview_timer.timeout.connect(self._auto_rerender)
         self.region: list[tuple[float, float]] | None = None
         self._undo: dict[str, list[dict]] = {}
+        self._edited = False
 
         self._build_toolbar()
         self._build_central()
@@ -499,6 +500,7 @@ class MainWindow(QMainWindow):
 
     def reset_page(self, index: int) -> None:
         page = list(self.project)[index]
+        self._edited = True
         for stage in list(page.stage):
             page.stage[stage] = 0
         for block in page.blocks:
@@ -533,7 +535,33 @@ class MainWindow(QMainWindow):
 
     def save(self) -> None:
         self.project.save()
+        self._edited = False
         self.statusBar().showMessage("已保存 project.json")
+
+    def _confirm_exit(self) -> bool:
+        """Ask whether to save; True means it is fine to leave."""
+        if not self._edited:
+            return True
+        answer = QMessageBox.warning(
+            self,
+            "未保存的修改",
+            "本次编辑还没有保存，退出前要保存吗？",
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Save,
+        )
+        if answer == QMessageBox.StandardButton.Cancel:
+            return False
+        if answer == QMessageBox.StandardButton.Save:
+            self.save()
+        return True
+
+    def closeEvent(self, event) -> None:  # noqa: N802 - Qt name
+        if self._confirm_exit():
+            event.accept()
+        else:
+            event.ignore()
 
     def _jump_to_block(self, page_index: int, block_id: int) -> None:
         self.load_page(page_index)
@@ -647,6 +675,7 @@ class MainWindow(QMainWindow):
     # -- block actions ----------------------------------------------------
     def _snapshot(self, images: tuple[str, ...] = ()) -> None:
         """Remember state before an edit; ``images`` also snapshots page files."""
+        self._edited = True
         if self.editor is None:
             return
         entry = {
@@ -702,6 +731,7 @@ class MainWindow(QMainWindow):
             temp.replace(path)
             restored.append(key)
         self.editor.project.save()
+        self._edited = True
         self.sheets["editor"].show_block(None)
         self.show_view(self.view_mode, quiet=True)
         self._touch_page()
@@ -1054,6 +1084,8 @@ class MainWindow(QMainWindow):
             self, "选择漫画文件夹", str(self.project.directory)
         )
         if not chosen:
+            return
+        if not self._confirm_exit():
             return
         self.load_project(Path(chosen))
 

@@ -309,6 +309,64 @@ def test_preview_shortcuts_switch_views(window):
     assert window.view_mode in {"result", "source"}
 
 
+def test_exit_prompt_cancel_keeps_window_open(window, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    window._edited = True
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        staticmethod(lambda *args, **kwargs: QMessageBox.StandardButton.Cancel),
+    )
+
+    assert window._confirm_exit() is False
+
+
+def test_exit_prompt_save_calls_save(window, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    calls = []
+    window._edited = True
+    monkeypatch.setattr(window, "save", lambda: calls.append("saved"))
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        staticmethod(lambda *args, **kwargs: QMessageBox.StandardButton.Save),
+    )
+
+    assert window._confirm_exit() is True
+    assert calls == ["saved"]
+
+
+def test_exit_prompt_discard_closes_without_saving(window, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    calls = []
+    window._edited = True
+    monkeypatch.setattr(window, "save", lambda: calls.append("saved"))
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        staticmethod(lambda *args, **kwargs: QMessageBox.StandardButton.Discard),
+    )
+
+    assert window._confirm_exit() is True
+    assert calls == []
+
+
+def test_exit_prompt_skipped_without_edits(window, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    window._edited = False
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        staticmethod(lambda *args, **kwargs: pytest.fail("should not ask")),
+    )
+
+    assert window._confirm_exit() is True
+
+
 # -- robustness ------------------------------------------------------------
 def test_invalid_image_keeps_previous_page(window):
     window.canvas.show_image("does-not-exist.png")
