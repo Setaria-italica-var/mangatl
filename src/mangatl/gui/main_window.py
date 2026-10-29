@@ -538,22 +538,37 @@ class MainWindow(QMainWindow):
         self._edited = False
         self.statusBar().showMessage("已保存 project.json")
 
+    def _ask_save_choice(self) -> str:
+        """Modal dialog with Chinese buttons; returns save / discard / cancel."""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("退出 mangatl")
+        box.setText("退出前要保存当前进度吗？")
+        box.setInformativeText(
+            "编辑会自动写入 project.json；这里再确认一次，避免误关窗口。"
+        )
+        save_button = box.addButton("保存并退出", QMessageBox.ButtonRole.AcceptRole)
+        discard_button = box.addButton("直接退出", QMessageBox.ButtonRole.DestructiveRole)
+        cancel_button = box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(save_button)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is save_button:
+            return "save"
+        if clicked is discard_button:
+            return "discard"
+        if clicked is cancel_button:
+            return "cancel"
+        return "cancel"
+
     def _confirm_exit(self) -> bool:
         """Ask whether to save; True means it is fine to leave."""
-        if not self._edited:
+        if self.editor is None:
             return True
-        answer = QMessageBox.warning(
-            self,
-            "未保存的修改",
-            "本次编辑还没有保存，退出前要保存吗？",
-            QMessageBox.StandardButton.Save
-            | QMessageBox.StandardButton.Discard
-            | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Save,
-        )
-        if answer == QMessageBox.StandardButton.Cancel:
+        choice = self._ask_save_choice()
+        if choice == "cancel":
             return False
-        if answer == QMessageBox.StandardButton.Save:
+        if choice == "save":
             self.save()
         return True
 

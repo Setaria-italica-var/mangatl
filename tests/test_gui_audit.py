@@ -310,61 +310,38 @@ def test_preview_shortcuts_switch_views(window):
 
 
 def test_exit_prompt_cancel_keeps_window_open(window, monkeypatch):
-    from PySide6.QtWidgets import QMessageBox
-
-    window._edited = True
-    monkeypatch.setattr(
-        QMessageBox,
-        "warning",
-        staticmethod(lambda *args, **kwargs: QMessageBox.StandardButton.Cancel),
-    )
+    monkeypatch.setattr(window, "_ask_save_choice", lambda: "cancel")
 
     assert window._confirm_exit() is False
 
 
 def test_exit_prompt_save_calls_save(window, monkeypatch):
-    from PySide6.QtWidgets import QMessageBox
-
     calls = []
-    window._edited = True
+    monkeypatch.setattr(window, "_ask_save_choice", lambda: "save")
     monkeypatch.setattr(window, "save", lambda: calls.append("saved"))
-    monkeypatch.setattr(
-        QMessageBox,
-        "warning",
-        staticmethod(lambda *args, **kwargs: QMessageBox.StandardButton.Save),
-    )
 
     assert window._confirm_exit() is True
     assert calls == ["saved"]
 
 
 def test_exit_prompt_discard_closes_without_saving(window, monkeypatch):
-    from PySide6.QtWidgets import QMessageBox
-
     calls = []
-    window._edited = True
+    monkeypatch.setattr(window, "_ask_save_choice", lambda: "discard")
     monkeypatch.setattr(window, "save", lambda: calls.append("saved"))
-    monkeypatch.setattr(
-        QMessageBox,
-        "warning",
-        staticmethod(lambda *args, **kwargs: QMessageBox.StandardButton.Discard),
-    )
 
     assert window._confirm_exit() is True
     assert calls == []
 
 
-def test_exit_prompt_skipped_without_edits(window, monkeypatch):
-    from PySide6.QtWidgets import QMessageBox
-
+def test_exit_prompt_appears_even_without_edits(window, monkeypatch):
+    asked = []
     window._edited = False
     monkeypatch.setattr(
-        QMessageBox,
-        "warning",
-        staticmethod(lambda *args, **kwargs: pytest.fail("should not ask")),
+        window, "_ask_save_choice", lambda: asked.append(1) or "discard"
     )
 
     assert window._confirm_exit() is True
+    assert asked == [1]
 
 
 # -- robustness ------------------------------------------------------------
