@@ -6,4 +6,4 @@ if exist ".venv\Scripts\python.exe" (
 ) else (
   python tools\launcher.py %*
 )
-pause
+if errorlevel 1 pause
