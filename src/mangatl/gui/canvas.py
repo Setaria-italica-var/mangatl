@@ -32,6 +32,7 @@ class PageCanvas(QGraphicsView):
     rectFinished = Signal(tuple)
     cursorMoved = Signal(int, int)
     blockGeometryChanged = Signal(int, tuple)
+    selectionChanged = Signal(bool)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -44,6 +45,8 @@ class PageCanvas(QGraphicsView):
         self._pixmap_item: QGraphicsPixmapItem | None = None
         self._overlay_items: dict[int, QGraphicsRectItem] = {}
         self._preview: QGraphicsPolygonItem | None = None
+        self._selection: QGraphicsPolygonItem | None = None
+        self._selection_points: list[tuple[float, float]] = []
         self._mode = "select"
         self._overlay_opacity = 1.0
         self._selected_id: int | None = None
@@ -67,6 +70,7 @@ class PageCanvas(QGraphicsView):
         """Load the page image and reset the view."""
         pixmap = QPixmap(str(path))
         if pixmap.isNull():
+            # Never clear the view for an unreadable file: keep the previous page.
             return
         self.scene().clear()
         self._overlay_items.clear()
@@ -224,8 +228,10 @@ class PageCanvas(QGraphicsView):
                     max(p[1] for p in points),
                 )
                 if x2 - x1 > 4 and y2 - y1 > 4:
+                    self._show_selection([(x1, y1), (x2, y1), (x2, y2), (x1, y2)])
                     self.rectFinished.emit((int(x1), int(y1), int(x2), int(y2)))
             elif len(points) >= 3:
+                self._show_selection(points)
                 self.lassoFinished.emit(points)
             self._points = []
             return
@@ -261,6 +267,47 @@ class PageCanvas(QGraphicsView):
         x1, y1, x2, y2 = bbox
         item.setRect(QRectF(x1, y1, x2 - x1, y2 - y1))
         self._build_handles(bbox)
+
+    def _show_selection(self, points: list[tuple[float, float]]) -> None:
+        """Keep the lasso/rectangle visible until the action finishes."""
+        self._clear_selection()
+        self._selection_points = list(points)
+        polygon = QPolygonF([QPointF(x, y) for x, y in points])
+        item = QGraphicsPolygonItem(polygon)
+        item.setPen(QPen(QColor(120, 220, 255), 2, Qt.PenStyle.DashLine))
+        item.setBrush(QBrush(QColor(120, 220, 255, 30)))
+        item.setZValue(9)
+        self.scene().addItem(item)
+        self._selection = item
+        self.selectionChanged.emit(True)
+
+    def clear_selection(self) -> None:
+        """Drop the current region selection."""
+        self._clear_selection()
+        self.selectionChanged.emit(False)
+
+    def _clear_selection(self) -> None:
+        self._selection_points = []
+        if self._selection is not None:
+            self.scene().removeItem(self._selection)
+            self._selection = None
+
+    def selection_bbox(self) -> tuple[int, int, int, int] | None:
+        if not self._selection_points:
+            return None
+        xs = [point[0] for point in self._selection_points]
+        ys = [point[1] for point in self._selection_points]
+        return (int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys)))
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802 - Qt name
+        if event.key() == Qt.Key.Key_Escape and self._selection is not None:
+            self.clear_selection()
+            return
+        super().keyPressEvent(event)
+
+    def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802 - Qt name
+        self.fit()
+        event.accept()
 
     def _clear_handles(self) -> None:
         for item in self._handle_items.values():

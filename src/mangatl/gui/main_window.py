@@ -5,7 +5,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QPointF, Qt, QTimer
+from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QComboBox,
     QDockWidget,
@@ -66,6 +67,7 @@ class MainWindow(QMainWindow):
         self._build_sidebar()
         self._build_module_panel()
         self._build_engine_bar()
+        self._install_shortcuts()
         self.statusBar().showMessage("就绪")
 
         self.refresh_pages()
@@ -73,6 +75,20 @@ class MainWindow(QMainWindow):
             self.load_page(0)
         else:
             self.statusBar().showMessage("项目里没有图片：请把页面放进该目录")
+
+    def _install_shortcuts(self) -> None:
+        """Global keys: Home/F fit, Esc cancels, R rotate, F11 full screen."""
+        for keys, slot in (
+            ("Home", self.canvas.fit),
+            ("F", self.canvas.fit),
+            ("Esc", self._cancel_selection),
+            ("R", self.canvas.rotate_view),
+            ("F11", self.toggle_fullscreen),
+        ):
+            action = QAction(self)
+            action.setShortcut(QKeySequence(keys))
+            action.triggered.connect(slot)
+            self.addAction(action)
 
     # -- top toolbar ------------------------------------------------------
     def _tool_button(self, icon, tooltip: str, slot, checkable: bool = False):
@@ -102,7 +118,7 @@ class MainWindow(QMainWindow):
 
         bar.addSeparator()
         bar.addWidget(
-            self._tool_button(FIF.FIT_PAGE, "适应窗口", lambda: self.canvas.fit())
+            self._tool_button(FIF.FIT_PAGE, "适应窗口 (F/Home)", lambda: self.canvas.fit())
         )
         bar.addWidget(
             self._tool_button(FIF.ROTATE, "旋转 90°", lambda: self.canvas.rotate_view())
@@ -142,6 +158,61 @@ class MainWindow(QMainWindow):
             lambda x, y: self.statusBar().showMessage(f"x={x} y={y}")
         )
         self.setCentralWidget(self.canvas)
+        self._build_selection_bar()
+        self.canvas.selectionChanged.connect(self._on_selection_changed)
+
+    def _build_selection_bar(self) -> None:
+        """Floating actions shown right next to a lasso/rectangle selection."""
+        self.selection_bar = QWidget(self.canvas.viewport())
+        layout = QHBoxLayout(self.selection_bar)
+        layout.setContentsMargins(6, 3, 6, 3)
+        layout.setSpacing(2)
+        for icon, tip, slot in (
+            (FIF.SEARCH, "重新检测", "detect"),
+            (FIF.BROOM, "重新擦除", "erase"),
+            (FIF.ADD, "添加文本块", "add"),
+        ):
+            button = TransparentToolButton(icon)
+            button.setToolTip(tip)
+            button.clicked.connect(lambda _=False, a=slot: self._selection_action(a))
+            layout.addWidget(button)
+        close = TransparentToolButton(FIF.CLOSE)
+        close.setToolTip("取消选区 (Esc)")
+        close.clicked.connect(self._cancel_selection)
+        layout.addWidget(close)
+        self.selection_bar.setObjectName("SelectionBar")
+        self.selection_bar.setStyleSheet(
+            "QWidget#SelectionBar { background: rgba(40,40,40,220); border-radius: 8px; }"
+        )
+        self.selection_bar.hide()
+
+    def _on_selection_changed(self, active: bool) -> None:
+        if not active:
+            self.selection_bar.hide()
+            return
+        box = self.canvas.selection_bbox()
+        if box is None:
+            return
+        top_left = self.canvas.mapFromScene(QPointF(box[0], box[1]))
+        x = max(4, top_left.x())
+        y = max(4, top_left.y() - self.selection_bar.sizeHint().height() - 6)
+        self.selection_bar.adjustSize()
+        self.selection_bar.move(x, y)
+        self.selection_bar.show()
+        self.selection_bar.raise_()
+
+    def _selection_action(self, action: str) -> None:
+        actions = {
+            "detect": self.redetect_region,
+            "erase": self.erase_region,
+            "add": self.add_region_block,
+        }
+        actions[action]()
+        self.canvas.clear_selection()
+
+    def _cancel_selection(self) -> None:
+        self.canvas.clear_selection()
+        self.selection_bar.hide()
 
     def _build_sidebar(self) -> None:
         dock = QDockWidget("页面", self)
@@ -269,11 +340,23 @@ class MainWindow(QMainWindow):
 
     # -- pages ------------------------------------------------------------
     def refresh_pages(self) -> None:
-        pages = list(self.project)
-        self.page_list.set_pages(pages, self.project.directory)
+        current = self.page_index
+        self.page_list.set_pages(list(self.project), self.project.directory)
+        self.page_list.blockSignals(True)
+        self.page_list.setCurrentRow(current)
+        self.page_list.blockSignals(False)
         self.sheets["search"].project = self.project
         self.sheets["search"].refresh()
         self._refresh_sheets()
+
+    def _touch_page(self) -> None:
+        """Refresh just the current page without rebuilding the sidebar."""
+        if not len(self.project):
+            return
+        page = list(self.project)[self.page_index]
+        self.page_list.update_page(self.page_index, page)
+        self.sheets["editor"].show_page(page)
+        self.sheets["blocks"].show_page(page)
 
     def _refresh_sheets(self) -> None:
         page = list(self.project)[self.page_index] if len(self.project) else None
@@ -419,7 +502,7 @@ class MainWindow(QMainWindow):
         self.editor.page.blocks = [TextBlock.from_dict(item) for item in snapshot]
         self.editor.project.save()
         self.canvas.set_blocks(self.editor.page.blocks)
-        self.refresh_pages()
+        self._touch_page()
         self.statusBar().showMessage("已撤销")
 
     def on_geometry_changed(self, block_id: int, bbox: tuple) -> None:
@@ -432,7 +515,7 @@ class MainWindow(QMainWindow):
         self._snapshot()
         self.editor.set_bbox(block, bbox)
         self.canvas.set_blocks(self.editor.page.blocks, [block_id])
-        self.refresh_pages()
+        self._touch_page()
         self.statusBar().showMessage(f"#{block_id} 已调整框 {block.bbox}")
 
     def on_block_edited(
@@ -451,7 +534,8 @@ class MainWindow(QMainWindow):
         block.ocr_source = "manual"
         block.needs_review = False
         self.editor.project.save()
-        self.refresh_pages()
+        self._touch_page()
+        self.canvas.set_blocks(self.editor.page.blocks, [block_id])
         self.statusBar().showMessage(f"已更新 #{block_id}")
 
     def on_style_applied(self, block_id: int, style: dict, rerender: bool) -> None:
@@ -509,7 +593,7 @@ class MainWindow(QMainWindow):
         translator.translate([block], {"target_lang": "简体中文"})
         self.sheets["editor"].show_block(block)
         self.editor.project.save()
-        self.refresh_pages()
+        self._touch_page()
 
     def delete_block(self) -> None:
         block = self._selected()
@@ -520,7 +604,7 @@ class MainWindow(QMainWindow):
         self.selected_id = None
         self.canvas.set_blocks(self.editor.page.blocks)
         self.sheets["editor"].show_block(None)
-        self.refresh_pages()
+        self._touch_page()
         self.statusBar().showMessage("已删除")
 
     def rerender(self) -> None:
@@ -529,7 +613,7 @@ class MainWindow(QMainWindow):
         path = self.editor.rerender()
         self.canvas.show_image(path)
         self.canvas.set_blocks(self.editor.page.blocks)
-        self.refresh_pages()
+        self._touch_page()
         self.statusBar().showMessage(f"已排版 -> {path}")
 
     # -- region actions ---------------------------------------------------
@@ -537,14 +621,14 @@ class MainWindow(QMainWindow):
         self.region = points
         self.show_module("editor")
         self.statusBar().showMessage(
-            f"已选择区域（{len(points)} 点），用右侧“重新检测/擦除/添加”"
+            f"已选择区域（{len(points)} 点）：点选区上方的按钮，或右侧操作"
         )
 
     def on_rect(self, box: tuple) -> None:
         x1, y1, x2, y2 = box
         self.region = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
         self.show_module("editor")
-        self.statusBar().showMessage("已选择矩形区域，用右侧“重新检测/擦除/添加”")
+        self.statusBar().showMessage("已选择矩形区域：点选区上方的按钮，或右侧操作")
 
     def on_sheet_region(self, action: str) -> None:
         if action == "detect":
@@ -566,7 +650,7 @@ class MainWindow(QMainWindow):
         self._snapshot()
         added = self.editor.redetect(self.region or [])
         self.canvas.set_blocks(self.editor.page.blocks)
-        self.refresh_pages()
+        self._touch_page()
         self.statusBar().showMessage(f"区域检测：新增 {len(added)} 块")
 
     def erase_region(self) -> None:
@@ -576,7 +660,7 @@ class MainWindow(QMainWindow):
         path = self.editor.erase_region(self.region or [])
         self.canvas.show_image(path)
         self.canvas.set_blocks(self.editor.page.blocks)
-        self.refresh_pages()
+        self._touch_page()
         self.statusBar().showMessage(f"区域擦除 -> {path}")
 
     def add_region_block(self) -> None:
