@@ -34,6 +34,8 @@ class RunConfig:
     erase_scope: str = "strict"
     bubbles: str = "auto"
     require_translation: bool = True
+    merge_fragments: bool = True
+    page_scopes: tuple[str, ...] = ()
     bubble_model: str = "data/models/bubble_detector.onnx"
     keep_blocks: tuple[str, ...] = ()
     force_blocks: tuple[str, ...] = ()

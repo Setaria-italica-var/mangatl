@@ -135,6 +135,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "light backgrounds; all: every detected block",
     )
     run.add_argument(
+        "--page-scope",
+        action="append",
+        default=[],
+        metavar="PAGE=SCOPE",
+        help="per-page erase scope, e.g. --page-scope 009.jpg=all",
+    )
+    run.add_argument(
         "--keep-blocks",
         default="",
         help="comma separated page:id pairs to always keep, e.g. 001.jpg:3,001.jpg:5",
@@ -386,8 +393,25 @@ def _run_demo(directory: Path, pages: int, seed: int) -> int:
     return 0
 
 
+def _configure_stdio() -> None:
+    """Make console output survive CJK text on a legacy code page.
+
+    A GBK console cannot encode ``・`` or ``…``; when output is redirected the
+    process must write UTF-8 or the whole command dies with UnicodeEncodeError.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if not stream.isatty():
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            else:
+                stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):  # not a TextIOWrapper
+            continue
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and return a process exit code."""
+    _configure_stdio()
     args = _build_parser().parse_args(argv)
     if args.command == "demo":
         return _run_demo(args.directory, args.pages, args.seed)
@@ -419,6 +443,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         erase_scope="all" if args.bubbles == "off" else args.erase_scope,
         bubbles=args.bubbles,
         bubble_model=args.bubble_model,
+        page_scopes=tuple(args.page_scope),
         keep_blocks=tuple(filter(None, (s.strip() for s in args.keep_blocks.split(",")))),
         force_blocks=tuple(filter(None, (s.strip() for s in args.erase_blocks.split(",")))),
     )

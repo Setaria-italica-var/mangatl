@@ -24,6 +24,7 @@ from mangatl.adapters.base import Detector, Inpainter, Ocr, Translator
 from mangatl.adapters.translators.echo import EchoTranslator
 from mangatl.core.config import RunConfig
 from mangatl.domain.block import TextBlock
+from mangatl.domain.merge import merge_blocks
 from mangatl.domain.project import Page, Project
 from mangatl.domain.quality import looks_garbled
 from mangatl.domain.roles import BlockRole, RoleConfig, classify, is_translatable
@@ -118,10 +119,13 @@ class PipelineService:
                 if not page.blocks:
                     raise ValueError(f"{page.name}: OCR needs blocks from the detect stage")
                 page.blocks = self.ocr.recognize(image_path, page.blocks)
+                if config.merge_fragments:
+                    page.blocks = merge_blocks(page.blocks)
                 assign_roles(page, config)
             elif stage == "translate":
                 ensure_mask(page, image_path, self.detector)
-                annotate_bubbles(page, image_path, config.erase_scope, self.bubble_detector)
+                scope = _scope_overrides(config).get(page.name, config.erase_scope)
+                annotate_bubbles(page, image_path, scope, self.bubble_detector)
                 assign_roles(page, config)
                 for block in page.blocks:
                     if block.role == BlockRole.SYMBOL.value:
@@ -140,7 +144,8 @@ class PipelineService:
                     )
             elif stage == "render":
                 ensure_mask(page, image_path, self.detector)
-                annotate_bubbles(page, image_path, config.erase_scope, self.bubble_detector)
+                scope = _scope_overrides(config).get(page.name, config.erase_scope)
+                annotate_bubbles(page, image_path, scope, self.bubble_detector)
                 assign_roles(page, config)
                 source = self.project.directory / config.output_dirname / page.name
                 if not source.is_file():
@@ -154,7 +159,8 @@ class PipelineService:
                 if page.size is None:
                     page.size = _image_size(image_path)
                 ensure_mask(page, image_path, self.detector)
-                annotate_bubbles(page, image_path, config.erase_scope, self.bubble_detector)
+                scope = _scope_overrides(config).get(page.name, config.erase_scope)
+                annotate_bubbles(page, image_path, scope, self.bubble_detector)
                 assign_roles(page, config)
                 destination = self.project.directory / config.output_dirname / page.name
                 keep = {item.strip() for item in config.keep_blocks}
@@ -336,6 +342,18 @@ def is_bubble(bbox: tuple[int, int, int, int], regions, page_size: tuple[int, in
     return rx1 <= x1 + 2 and ry1 <= y1 + 2 and rx2 >= x2 - 2 and ry2 >= y2 - 2
 
 
+def _scope_overrides(config: RunConfig) -> dict[str, str]:
+    """Parse ``--page-scope 009.jpg=all`` entries into a mapping."""
+    result: dict[str, str] = {}
+    for item in config.page_scopes:
+        if "=" not in item:
+            continue
+        name, scope = item.split("=", 1)
+        if scope in {"strict", "bright", "all"}:
+            result[name.strip()] = scope.strip()
+    return result
+
+
 def ensure_mask(page: Page, image_path: Path, detector) -> None:
     """Compute the detector's text probability once per page, if possible."""
     if page.text_mask is not None:
@@ -389,6 +407,11 @@ def annotate_bubbles(page: Page, image_path: Path, scope: str = "strict", detect
     except ImportError:  # pragma: no cover - numpy/Pillow optional for stubs
         return
 
+    if scope == "all":
+        # Explicit override: letter every block, model or not.
+        for block in page.blocks:
+            block.in_bubble = True
+        return
     if annotate_with_model(page, image_path, detector):
         return
 
