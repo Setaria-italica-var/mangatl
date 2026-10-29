@@ -116,9 +116,6 @@ class EditorSheet(QWidget):
         self.spacing_box.setRange(0.0, 3.0)
         self.spacing_box.setSingleStep(0.05)
         self.spacing_box.setPrefix("行距 ")
-        self.spacing_box.setToolTip(
-            "横排是行间距离；竖排时表示两列之间的间距（0 = 自动）"
-        )
         row_style.addWidget(self.spacing_box, 1)
         layout.addLayout(row_style)
 

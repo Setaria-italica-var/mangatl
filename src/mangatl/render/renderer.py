@@ -106,11 +106,8 @@ class PageRenderer:
         stroke = self._stroke(style, start)
         text_width = max(1, width - 2 * stroke)
         text_height = max(1, height - 2 * stroke)
+        char_spacing = float((block.style or {}).get("line_spacing") or 1.0)
         if block.vertical:
-            # "line spacing" means column pitch when writing vertically.
-            column_spacing = float(
-                (block.style or {}).get("line_spacing") or self.config.column_spacing
-            )
             layout = fit_vertical(
                 text,
                 text_width,
@@ -118,7 +115,8 @@ class PageRenderer:
                 font_ref,
                 start,
                 min_size=floor,
-                column_spacing=column_spacing,
+                column_spacing=self.config.column_spacing,
+                char_spacing=char_spacing,
             )
         else:
             spacing = float(
@@ -183,11 +181,8 @@ class PageRenderer:
         # Reserve room for the outline: a glyph of size S plus stroke occupies S+2*stroke.
         text_width = max(1, width - 2 * self._stroke(style, start))
         text_height = max(1, height - 2 * self._stroke(style, start))
+        char_spacing = float((block.style or {}).get("line_spacing") or 1.0)
         if block.vertical:
-            # "line spacing" means column pitch when writing vertically.
-            column_spacing = float(
-                (block.style or {}).get("line_spacing") or self.config.column_spacing
-            )
             layout = fit_vertical(
                 text,
                 text_width,
@@ -195,9 +190,12 @@ class PageRenderer:
                 font_ref,
                 start,
                 min_size=floor,
-                column_spacing=column_spacing,
+                column_spacing=self.config.column_spacing,
+                char_spacing=char_spacing,
             )
-            self._draw_vertical(target_draw, target, block, layout, style, font_ref, box)
+            self._draw_vertical(
+                target_draw, target, block, layout, style, font_ref, box, char_spacing
+            )
         else:
             spacing = float((block.style or {}).get("line_spacing") or self.config.line_spacing)
             layout = fit_horizontal(
@@ -290,6 +288,7 @@ class PageRenderer:
         style: TextStyle,
         font_ref: fonts.FontRef,
         box: tuple[int, int, int, int],
+        char_spacing: float = 1.0,
     ) -> None:
         font = fonts.load(font_ref, layout.font_size)
         x1, y1, x2, y2 = box
@@ -304,7 +303,7 @@ class PageRenderer:
             for row, char in enumerate(column):
                 if char.isspace():
                     continue
-                centre_y = y1 + (row + 0.5) * size * VERTICAL_OFFSET
+                centre_y = y1 + (row + 0.5) * size * VERTICAL_OFFSET * char_spacing
                 if centre_y > y2:
                     break
                 if char in ROTATE_IN_VERTICAL:

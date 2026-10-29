@@ -71,9 +71,9 @@ def fit_horizontal(
     return FitResult(best.lines, best.font_size, best.line_height, overflow=True)
 
 
-def _vertical_measure(size: int):
-    """Advance measuring along a column: one em per character."""
-    advance = size * 1.02
+def _vertical_measure(size: int, char_spacing: float = 1.0):
+    """Advance measuring along a column: one em (plus spacing) per character."""
+    advance = size * 1.02 * max(0.5, char_spacing)
 
     def measure(text: str) -> float:
         return len(text) * advance
@@ -90,6 +90,7 @@ def fit_vertical(
     *,
     min_size: int = 9,
     column_spacing: float = 1.1,
+    char_spacing: float = 1.0,
 ) -> FitResult:
     """Return the largest size whose columns fit right-to-left in ``box``."""
     size = max(min_size, int(start_size))
@@ -98,7 +99,9 @@ def fit_vertical(
         _font, measure = _measure_factory(font_ref, size)
         # Along a vertical column the advance is one em per character; the
         # font's horizontal width would badly overestimate the column length.
-        columns = linebreak.wrap_vertical(text, box_height, _vertical_measure(size))
+        columns = linebreak.wrap_vertical(
+            text, box_height, _vertical_measure(size, char_spacing)
+        )
         column_width = size * column_spacing
         if len(columns) * column_width <= box_width:
             return FitResult(lines=columns, font_size=size, line_height=column_width)
@@ -106,7 +109,9 @@ def fit_vertical(
 
     _font, measure = _measure_factory(font_ref, min_size)
     return FitResult(
-        lines=linebreak.wrap_vertical(text, box_height, _vertical_measure(min_size)),
+        lines=linebreak.wrap_vertical(
+            text, box_height, _vertical_measure(min_size, char_spacing)
+        ),
         font_size=min_size,
         line_height=min_size * column_spacing,
         overflow=True,
