@@ -874,6 +874,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"自动排版失败：{exc}")
             return
         if self.view_mode == "result":
+            self.canvas.set_overlay_mode("text")
             self.canvas.show_image(path, keep_selection=True, preserve_view=True)
             self.canvas.set_blocks(self.editor.page.blocks, self.selected_ids)
         self.statusBar().showMessage("已自动重排当前页")
@@ -901,13 +902,24 @@ class MainWindow(QMainWindow):
             )
         path = self.editor.view_path(mode)
         if path is not None:
+            self.canvas.set_overlay_mode(
+                {"source": "blocks", "erased": "diff", "result": "text"}[mode]
+            )
             self.canvas.show_image(path, keep_selection=True, preserve_view=True)
+            if mode == "erased" and self.editor.erased_path.is_file():
+                self.canvas.show_erased_diff(
+                    self.editor.image_path, self.editor.erased_path
+                )
             self.canvas.set_blocks(self.editor.page.blocks, self.selected_ids)
         self.btn_view_source.setChecked(mode == "source")
         self.btn_view_erased.setChecked(mode == "erased")
         self.btn_view_result.setChecked(mode == "result")
-        labels = {"source": "原图", "erased": "擦除后", "result": "排版结果"}
-        self.statusBar().showMessage(f"预览：{labels.get(mode, mode)}")
+        labels = {
+            "source": "原图 · 编辑检测框",
+            "erased": "擦除后 · 红色为已擦除区域",
+            "result": "排版结果 · 拖动虚线框调整文字",
+        }
+        self.statusBar().showMessage(labels.get(mode, mode))
 
     def _result_is_stale(self) -> bool:
         """True when the project changed after the result image was written."""

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QPen, QPixmap, QPolygonF
+from PySide6.QtGui import QBrush, QColor, QImage, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QGraphicsPixmapItem,
     QGraphicsPolygonItem,
@@ -58,6 +58,8 @@ class PageCanvas(QGraphicsView):
         self._rubber: dict | None = None
         self._rubber_item: QGraphicsRectItem | None = None
         self._rubber_moved = False
+        self._overlay_mode = "blocks"
+        self._diff_item: QGraphicsPixmapItem | None = None
         self._points: list[QPointF] = []
         self._panning = False
         self._pan_start = QPointF()
@@ -94,12 +96,59 @@ class PageCanvas(QGraphicsView):
         self._preview = None
         self._selection = None
         self._selection_points = []
+        self._diff_item = None
         if kept_points:
             self._show_selection(kept_points)
         self._pixmap_item = self.scene().addPixmap(pixmap)
         self.scene().setSceneRect(QRectF(pixmap.rect()))
         if not preserve_view:
             self.fit()
+
+    def set_overlay_mode(self, mode: str) -> None:
+        """``blocks`` (source), ``diff`` (erased) or ``text`` (result)."""
+        self._overlay_mode = mode
+
+    def show_erased_diff(self, source_path, erased_path) -> None:
+        """Tint the pixels that differ between the page and its erased copy."""
+        self.clear_erased_diff()
+        try:
+            import numpy as np
+            from PIL import Image
+        except ImportError:
+            return
+        try:
+            with Image.open(source_path) as handle:
+                source = handle.convert("RGB")
+            with Image.open(erased_path) as handle:
+                erased = handle.convert("RGB")
+        except OSError:
+            return
+        if source.size != erased.size:
+            return
+        before = np.asarray(source, dtype=np.int16)
+        after = np.asarray(erased, dtype=np.int16)
+        # Erasing lightens ink strokes; JPEG noise and diffusion haze change both
+        # directions equally, so only "got brighter" pixels are real removals.
+        before_lum = before.mean(axis=2)
+        after_lum = after.mean(axis=2)
+        mask = (after_lum - before_lum) > 22
+        if not mask.any():
+            return
+        rgba = np.zeros((*mask.shape, 4), dtype=np.uint8)
+        rgba[mask] = (255, 90, 90, 150)
+        height, width = mask.shape
+        image = QImage(
+            rgba.data, width, height, 4 * width, QImage.Format.Format_RGBA8888
+        ).copy()
+        item = QGraphicsPixmapItem(QPixmap.fromImage(image))
+        item.setZValue(2)
+        self.scene().addItem(item)
+        self._diff_item = item
+
+    def clear_erased_diff(self) -> None:
+        if self._diff_item is not None:
+            self._remove_item(self._diff_item)
+            self._diff_item = None
 
     def set_blocks(self, blocks, selected_ids: Sequence[int] = ()) -> None:
         """Redraw block overlays."""
@@ -111,11 +160,17 @@ class PageCanvas(QGraphicsView):
         self._clear_handles()
         self._selected = list(selected_ids)
         self._selected_id = self._selected[0] if self._selected else None
+        if self._overlay_mode == "diff":
+            return
         for block in blocks:
+            if self._overlay_mode == "text" and not block.translation.strip():
+                continue
             x1, y1, x2, y2 = block.bbox
             colour = QColor(ROLE_COLORS.get(block.role, QColor(200, 200, 200, 60)))
             colour.setAlpha(int(colour.alpha() * self._overlay_opacity))
             pen = QPen(QColor(255, 255, 255, 220), 1.2)
+            if self._overlay_mode == "text":
+                pen = QPen(QColor(255, 255, 255, 235), 1.6, Qt.PenStyle.DashLine)
             if block.id in selected_ids:
                 pen = QPen(QColor(255, 214, 64), 2.2)
             item = QGraphicsRectItem(QRectF(x1, y1, x2 - x1, y2 - y1))
@@ -178,7 +233,11 @@ class PageCanvas(QGraphicsView):
                 }
                 event.accept()
                 return
-            if isinstance(item, QGraphicsRectItem) and item.data(0) is not None:
+            if (
+                self._overlay_mode != "diff"
+                and isinstance(item, QGraphicsRectItem)
+                and item.data(0) is not None
+            ):
                 block_id = int(item.data(0))
                 self.blockClicked.emit(block_id)
                 self._drag = {
@@ -279,6 +338,8 @@ class PageCanvas(QGraphicsView):
     def _start_rubber(self, position: QPointF, mode: str) -> None:
         self._rubber = {"start": position, "mode": mode}
         self._rubber_moved = False
+        self._overlay_mode = "blocks"
+        self._diff_item: QGraphicsPixmapItem | None = None
         self._clear_rubber_item()
 
     def _update_rubber(self, position: QPointF) -> None:
