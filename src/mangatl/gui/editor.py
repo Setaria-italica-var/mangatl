@@ -152,6 +152,12 @@ class PageEditor:
         except Exception:  # noqa: BLE001 - never block editing on a measure failure
             return 0
 
+    def set_text_bbox(self, block: TextBlock, bbox: tuple[int, int, int, int]) -> None:
+        """Move the type-setting frame without touching the detection box."""
+        width, height = self._size()
+        block.text_bbox = clamp_bbox(tuple(int(v) for v in bbox), width, height)
+        self.project.save()
+
     def set_style(self, block: TextBlock, style: dict) -> None:
         """Persist manual typography overrides for one block."""
         block.style = {key: value for key, value in style.items() if value not in ("", 0, 0.0)}

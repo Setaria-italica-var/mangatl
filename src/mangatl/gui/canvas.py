@@ -107,6 +107,12 @@ class PageCanvas(QGraphicsView):
         if not preserve_view:
             self.fit()
 
+    def _display_rect(self, block) -> tuple[int, int, int, int]:
+        """Result view edits the type-setting frame; source view edits the box."""
+        if self._overlay_mode == "text" and block.text_bbox is not None:
+            return tuple(int(v) for v in block.text_bbox)
+        return tuple(int(v) for v in block.bbox)
+
     def set_overlay_mode(self, mode: str) -> None:
         """``blocks`` (source), ``diff`` (erased) or ``text`` (result).
 
@@ -177,7 +183,7 @@ class PageCanvas(QGraphicsView):
         if self._overlay_mode == "diff":
             return
         for block in blocks:
-            x1, y1, x2, y2 = block.bbox
+            x1, y1, x2, y2 = self._display_rect(block)
             colour = QColor(ROLE_COLORS.get(block.role, QColor(200, 200, 200, 60)))
             colour.setAlpha(int(colour.alpha() * self._overlay_opacity))
             pen = QPen(QColor(255, 255, 255, 220), 1.2)
@@ -200,7 +206,9 @@ class PageCanvas(QGraphicsView):
             if len(self._selected) == 1 and block.id == self._selected_id:
                 item.setTransformOriginPoint((x1 + x2) / 2, (y1 + y2) / 2)
                 item.setRotation(self._rotations.get(block.id, 0.0))
-                self._build_handles(block.bbox, self._rotations.get(block.id, 0.0))
+                self._build_handles(
+                    (x1, y1, x2, y2), self._rotations.get(block.id, 0.0)
+                )
 
     def set_overlay_opacity(self, value: int) -> None:
         """Set block overlay opacity, 0-100 (100 = fully visible)."""

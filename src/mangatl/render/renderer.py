@@ -219,7 +219,13 @@ class PageRenderer:
         block.needs_review = layout.overflow
 
     def _layout_box(self, block: TextBlock) -> tuple[int, int, int, int]:
-        """Lettering area: the text box clipped to its bubble, with an inset."""
+        """Lettering area: the manual text frame, else the box clipped to its bubble."""
+        if block.text_bbox is not None:
+            x1, y1, x2, y2 = block.text_bbox
+            inset = 3
+            if x2 - x1 > 2 * inset and y2 - y1 > 2 * inset:
+                x1, y1, x2, y2 = x1 + inset, y1 + inset, x2 - inset, y2 - inset
+            return x1, y1, x2, y2
         x1, y1, x2, y2 = block.bbox
         if block.bubble_bbox is not None:
             bx1, by1, bx2, by2 = block.bubble_bbox

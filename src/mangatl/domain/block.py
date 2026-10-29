@@ -43,6 +43,8 @@ class TextBlock:
     )
     # Manual style overrides from the editor (empty = estimate from pixels).
     style: dict = field(default_factory=dict)
+    # Type-setting frame (result view). ``None`` means "use bbox".
+    text_bbox: tuple[int, int, int, int] | None = None
     # Free-transform rotation in degrees (clockwise), applied when lettering.
     rotation: float = 0.0
     # Font size used by the last render (transient, never serialised).
@@ -69,6 +71,11 @@ class TextBlock:
             "ocr_source": self.ocr_source,
             "style": dict(self.style),
             "rotation": round(float(self.rotation), 2),
+            **(
+                {"text_bbox": list(self.text_bbox)}
+                if self.text_bbox is not None
+                else {}
+            ),
             "bubble_bbox": list(self.bubble_bbox) if self.bubble_bbox else None,
             "erase_bbox": list(self.erase_bbox) if self.erase_bbox else None,
         }
@@ -100,6 +107,11 @@ class TextBlock:
             ocr_source=str(data.get("ocr_source", "")),
             style=dict(data.get("style", {})),
             rotation=float(data.get("rotation", 0.0)),
+            text_bbox=(
+                tuple(int(v) for v in data["text_bbox"])
+                if data.get("text_bbox")
+                else None
+            ),
             bubble_bbox=tuple(data["bubble_bbox"]) if data.get("bubble_bbox") else None,
             erase_bbox=tuple(data["erase_bbox"]) if data.get("erase_bbox") else None,
         )

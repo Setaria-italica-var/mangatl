@@ -672,7 +672,10 @@ class MainWindow(QMainWindow):
             return
         self._snapshot()
         self.editor.lock_style(block)
-        self.editor.set_bbox(block, bbox)
+        if self.view_mode == "result":
+            self.editor.set_text_bbox(block, bbox)
+        else:
+            self.editor.set_bbox(block, bbox)
         self.canvas.set_blocks(self.editor.page.blocks, [block_id])
         self._touch_page()
         self._schedule_render()
