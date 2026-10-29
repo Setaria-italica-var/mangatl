@@ -41,6 +41,8 @@ class TextBlock:
     ocr_candidates: list[tuple[str, str]] = field(
         default_factory=list, repr=False, compare=False
     )
+    # Manual style overrides from the editor (empty = estimate from pixels).
+    style: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-ready mapping."""
@@ -61,6 +63,7 @@ class TextBlock:
             "in_bubble": self.in_bubble,
             "ocr_score": round(self.ocr_score, 4),
             "ocr_source": self.ocr_source,
+            "style": dict(self.style),
             "bubble_bbox": list(self.bubble_bbox) if self.bubble_bbox else None,
             "erase_bbox": list(self.erase_bbox) if self.erase_bbox else None,
         }
@@ -90,6 +93,7 @@ class TextBlock:
             in_bubble=bool(data.get("in_bubble", True)),
             ocr_score=float(data.get("ocr_score", 0.0)),
             ocr_source=str(data.get("ocr_source", "")),
+            style=dict(data.get("style", {})),
             bubble_bbox=tuple(data["bubble_bbox"]) if data.get("bubble_bbox") else None,
             erase_bbox=tuple(data["erase_bbox"]) if data.get("erase_bbox") else None,
         )

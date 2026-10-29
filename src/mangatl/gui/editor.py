@@ -95,6 +95,11 @@ class PageEditor:
         self._refresh_role(block)
         self._after_edit()
 
+    def set_style(self, block: TextBlock, style: dict) -> None:
+        """Persist manual typography overrides for one block."""
+        block.style = {key: value for key, value in style.items() if value not in ("", 0, 0.0)}
+        self.project.save()
+
     def set_translation(self, block: TextBlock, translation: str) -> None:
         """Set the translation."""
         block.translation = translation.strip()

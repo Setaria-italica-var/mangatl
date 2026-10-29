@@ -9,8 +9,11 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QColorDialog,
+    QDoubleSpinBox,
     QHBoxLayout,
     QLabel,
+    QSpinBox,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -58,6 +61,7 @@ class EditorSheet(QWidget):
     regionAction = Signal(str)
     blockEdited = Signal(int, str, str, str)  # id, text, translation, role
     blockAction = Signal(str)  # reocr / translate / render / delete
+    styleApplied = Signal(int, dict, bool)  # id, style, also_rerender
 
     def __init__(self) -> None:
         super().__init__()
@@ -91,6 +95,47 @@ class EditorSheet(QWidget):
         self.role_box.addItems(["dialogue", "sfx", "symbol", "texture"])
         row_role.addWidget(self.role_box, 1)
         layout.addLayout(row_role)
+
+        layout.addWidget(CaptionLabel("样式（0 = 自动）"))
+        row_font = QHBoxLayout()
+        self.font_box = ComboBox()
+        self.font_box.addItems(["黑体", "宋体", "手写"])
+        row_font.addWidget(self.font_box, 2)
+        self.size_box = QSpinBox()
+        self.size_box.setRange(0, 200)
+        self.size_box.setPrefix("字号 ")
+        row_font.addWidget(self.size_box, 1)
+        layout.addLayout(row_font)
+
+        row_style = QHBoxLayout()
+        self.bold_box = CheckBox("粗体")
+        row_style.addWidget(self.bold_box)
+        self.italic_box = CheckBox("斜体")
+        row_style.addWidget(self.italic_box)
+        self.align_box = ComboBox()
+        self.align_box.addItems(["居中", "左对齐", "右对齐"])
+        row_style.addWidget(self.align_box, 1)
+        self.spacing_box = QDoubleSpinBox()
+        self.spacing_box.setRange(0.0, 3.0)
+        self.spacing_box.setSingleStep(0.05)
+        self.spacing_box.setPrefix("行距 ")
+        row_style.addWidget(self.spacing_box, 1)
+        layout.addLayout(row_style)
+
+        row_color = QHBoxLayout()
+        self.fg_button = PushButton("前景色")
+        self.fg_button.clicked.connect(lambda: self._pick_colour("fg"))
+        row_color.addWidget(self.fg_button)
+        self.bg_button = PushButton("描边色")
+        self.bg_button.clicked.connect(lambda: self._pick_colour("bg"))
+        row_color.addWidget(self.bg_button)
+        layout.addLayout(row_color)
+        self._fg_colour = ""
+        self._bg_colour = ""
+
+        self.btn_style = PrimaryPushButton(FIF.BRUSH, "应用样式并排版")
+        self.btn_style.clicked.connect(lambda: self._emit_style(True))
+        layout.addWidget(self.btn_style)
 
         row1 = QHBoxLayout()
         self.btn_apply = PrimaryPushButton(FIF.ACCEPT, "应用文本")
@@ -155,6 +200,61 @@ class EditorSheet(QWidget):
         self.text_edit.setPlainText(block.text)
         self.translation_edit.setPlainText(block.translation)
         self.role_box.setCurrentText(block.role)
+        style = block.style or {}
+        categories = {"sans": "黑体", "serif": "宋体", "hand": "手写"}
+        self.font_box.setCurrentText(categories.get(style.get("font", ""), "黑体"))
+        self.size_box.setValue(int(style.get("font_size") or 0))
+        self.bold_box.setChecked(bool(style.get("bold", False)))
+        self.italic_box.setChecked(bool(style.get("italic", False)))
+        aligns = {"left": "左对齐", "right": "右对齐", "center": "居中"}
+        self.align_box.setCurrentText(aligns.get(style.get("align", ""), "居中"))
+        self.spacing_box.setValue(float(style.get("line_spacing") or 0.0))
+        self._fg_colour = style.get("fg", "")
+        self._bg_colour = style.get("bg", "")
+        self._update_colour_buttons()
+
+    def _pick_colour(self, target: str) -> None:
+        current = self._fg_colour if target == "fg" else self._bg_colour
+        colour = QColorDialog.getColor(
+            __import__("PySide6.QtGui", fromlist=["QColor"]).QColor(current or "#000000"),
+            self,
+            "选择颜色",
+        )
+        if not colour.isValid():
+            return
+        value = colour.name()
+        if target == "fg":
+            self._fg_colour = value
+        else:
+            self._bg_colour = value
+        self._update_colour_buttons()
+
+    def _update_colour_buttons(self) -> None:
+        self.fg_button.setText(
+            f"前景色 {self._fg_colour}" if self._fg_colour else "前景色（自动）"
+        )
+        self.bg_button.setText(
+            f"描边色 {self._bg_colour}" if self._bg_colour else "描边色（自动）"
+        )
+
+    def _emit_style(self, rerender: bool) -> None:
+        if self._block_id is None:
+            return
+        categories = {"黑体": "sans", "宋体": "serif", "手写": "hand"}
+        aligns = {"居中": "center", "左对齐": "left", "右对齐": "right"}
+        style = {
+            "font": categories.get(self.font_box.currentText(), "sans"),
+            "font_size": int(self.size_box.value()),
+            "bold": self.bold_box.isChecked(),
+            "italic": self.italic_box.isChecked(),
+            "align": aligns.get(self.align_box.currentText(), "center"),
+            "line_spacing": float(self.spacing_box.value()),
+        }
+        if self._fg_colour:
+            style["fg"] = self._fg_colour
+        if self._bg_colour:
+            style["bg"] = self._bg_colour
+        self.styleApplied.emit(self._block_id, style, rerender)
 
     def _emit_edit(self) -> None:
         if self._block_id is None:

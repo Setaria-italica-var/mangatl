@@ -24,7 +24,7 @@ from PIL import Image, ImageDraw
 from mangatl.domain.block import TextBlock
 from mangatl.render import fonts
 from mangatl.render.layout import FitResult, fit_horizontal, fit_vertical
-from mangatl.render.style import TextStyle, estimate_style
+from mangatl.render.style import TextStyle, apply_overrides, estimate_style
 
 ROTATE_IN_VERTICAL = set("ー〜～~―—─–‐‑‒…‥⋯（）()［］")
 VERTICAL_OFFSET = 1.06
@@ -75,6 +75,7 @@ class PageRenderer:
             style = estimate_style(
                 style_pixels, None, block.bbox, vertical=block.vertical
             )
+            style = apply_overrides(style, getattr(block, "style", {}) or {})
             self._draw_block(draw, page, block, text, style)
 
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -97,7 +98,8 @@ class PageRenderer:
         if font_ref is None:
             return  # no CJK font on this machine: skip rather than draw boxes
 
-        start = max(self.config.min_font_size + 2, int(style.font_size * 1.1))
+        explicit_size = int((block.style or {}).get("font_size") or 0)
+        start = explicit_size or max(self.config.min_font_size + 2, int(style.font_size * 1.1))
         # Reserve room for the outline: a glyph of size S plus stroke occupies S+2*stroke.
         text_width = max(1, width - 2 * self._stroke(style, start))
         text_height = max(1, height - 2 * self._stroke(style, start))
@@ -113,6 +115,7 @@ class PageRenderer:
             )
             self._draw_vertical(draw, page, block, layout, style, font_ref, box)
         else:
+            spacing = float((block.style or {}).get("line_spacing") or self.config.line_spacing)
             layout = fit_horizontal(
                 text,
                 text_width,
@@ -120,7 +123,7 @@ class PageRenderer:
                 font_ref,
                 start,
                 min_size=self.config.min_font_size,
-                line_spacing=self.config.line_spacing,
+                line_spacing=spacing,
             )
             self._draw_horizontal(draw, block, layout, style, font_ref, box)
 

@@ -204,3 +204,41 @@ def estimate_style(
         italic=italic,
         align=_align(region),
     )
+
+
+def _parse_colour(value: str) -> tuple[int, int, int]:
+    """Parse ``#rrggbb`` into an RGB tuple, falling back to black."""
+    text = value.lstrip("#")
+    if len(text) != 6:
+        return (0, 0, 0)
+    try:
+        return (int(text[0:2], 16), int(text[2:4], 16), int(text[4:6], 16))
+    except ValueError:
+        return (0, 0, 0)
+
+
+def apply_overrides(base: TextStyle, override: dict) -> TextStyle:
+    """Merge manual editor settings over the estimated style.
+
+    Only keys present in ``override`` change anything, so an explicitly chosen
+    colour survives while the rest stays automatic.
+
+    >>> from mangatl.render.style import TextStyle as T
+    >>> style = apply_overrides(T(), {"font_size": 24, "fg": "#ff0000"})
+    >>> style.font_size, style.fg
+    (24, (255, 0, 0))
+    """
+    if not override:
+        return base
+    return TextStyle(
+        fg=_parse_colour(override["fg"]) if override.get("fg") else base.fg,
+        bg=_parse_colour(override["bg"]) if override.get("bg") else base.bg,
+        font_size=int(override.get("font_size") or base.font_size),
+        stroke_width=int(
+            override["stroke"] if override.get("stroke") is not None else base.stroke_width
+        ),
+        weight="bold" if override.get("bold", base.weight == "bold") else "regular",
+        category=override.get("font") or base.category,
+        italic=bool(override.get("italic", base.italic)),
+        align=override.get("align") or base.align,
+    )

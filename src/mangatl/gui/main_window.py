@@ -195,6 +195,7 @@ class MainWindow(QMainWindow):
         editor.regionAction.connect(self.on_sheet_region)
         editor.blockEdited.connect(self.on_block_edited)
         editor.blockAction.connect(self.on_block_action)
+        editor.styleApplied.connect(self.on_style_applied)
         self.sheets["blocks"].blockSelected.connect(self.select_block)
         self.sheets["blocks"].blockEdited.connect(self.on_block_edited)
         self.sheets["search"].jumpRequested.connect(self._jump_to_block)
@@ -438,6 +439,18 @@ class MainWindow(QMainWindow):
         self.editor.project.save()
         self.refresh_pages()
         self.statusBar().showMessage(f"已更新 #{block_id}")
+
+    def on_style_applied(self, block_id: int, style: dict, rerender: bool) -> None:
+        if self.editor is None:
+            return
+        block = next((b for b in self.editor.page.blocks if b.id == block_id), None)
+        if block is None:
+            return
+        self._snapshot()
+        self.editor.set_style(block, style)
+        self.statusBar().showMessage(f"#{block_id} 样式已保存")
+        if rerender:
+            self.rerender()
 
     def on_block_action(self, action: str) -> None:
         if action == "reocr":
