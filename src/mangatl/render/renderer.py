@@ -82,6 +82,55 @@ class PageRenderer:
         page.convert("RGB").save(destination)
         return destination
 
+    def measure(self, block: TextBlock, style_source: Path | None = None) -> int:
+        """Font size the block would use right now, without drawing it."""
+        text = block.translation.strip()
+        if not text:
+            return 0
+        pixels = None
+        if style_source is not None and Path(style_source).is_file():
+            with Image.open(style_source) as handle:
+                pixels = _rgb_array(handle.convert("RGB"))
+        style = estimate_style(pixels, None, block.bbox, vertical=block.vertical)
+        style = apply_overrides(style, getattr(block, "style", {}) or {})
+        box = self._layout_box(block)
+        width, height = max(1, box[2] - box[0]), max(1, box[3] - box[1])
+        font_ref = fonts.resolve(style.category, style.weight) or fonts.resolve("sans")
+        if font_ref is None:
+            return 0
+        explicit = int((block.style or {}).get("font_size") or 0)
+        start = explicit or max(
+            self.config.min_font_size + 2, int(style.font_size * 1.1)
+        )
+        floor = explicit or self.config.min_font_size
+        stroke = self._stroke(style, start)
+        text_width = max(1, width - 2 * stroke)
+        text_height = max(1, height - 2 * stroke)
+        if block.vertical:
+            layout = fit_vertical(
+                text,
+                text_width,
+                text_height,
+                font_ref,
+                start,
+                min_size=floor,
+                column_spacing=self.config.column_spacing,
+            )
+        else:
+            spacing = float(
+                (block.style or {}).get("line_spacing") or self.config.line_spacing
+            )
+            layout = fit_horizontal(
+                text,
+                text_width,
+                text_height,
+                font_ref,
+                start,
+                min_size=floor,
+                line_spacing=spacing,
+            )
+        return int(layout.font_size)
+
     # -- internals --------------------------------------------------------
     def _draw_block(
         self,
@@ -109,6 +158,9 @@ class PageRenderer:
 
         explicit_size = int((block.style or {}).get("font_size") or 0)
         start = explicit_size or max(self.config.min_font_size + 2, int(style.font_size * 1.1))
+        # A locked size means "free transform": the frame may change, the glyphs
+        # must not. Without it, dragging a handle would re-fit the text each time.
+        floor = explicit_size or self.config.min_font_size
         # Reserve room for the outline: a glyph of size S plus stroke occupies S+2*stroke.
         text_width = max(1, width - 2 * self._stroke(style, start))
         text_height = max(1, height - 2 * self._stroke(style, start))
@@ -119,7 +171,7 @@ class PageRenderer:
                 text_height,
                 font_ref,
                 start,
-                min_size=self.config.min_font_size,
+                min_size=floor,
                 column_spacing=self.config.column_spacing,
             )
             self._draw_vertical(target_draw, target, block, layout, style, font_ref, box)
@@ -131,7 +183,7 @@ class PageRenderer:
                 text_height,
                 font_ref,
                 start,
-                min_size=self.config.min_font_size,
+                min_size=floor,
                 line_spacing=spacing,
             )
             self._draw_horizontal(target_draw, block, layout, style, font_ref, box)
@@ -146,6 +198,7 @@ class PageRenderer:
             )
             page.alpha_composite(rotated)
 
+        block.rendered_size = layout.font_size
         # Recompute rather than accumulate: an earlier run may have flagged this
         # block with a different font size, and stale flags are not actionable.
         block.needs_review = layout.overflow

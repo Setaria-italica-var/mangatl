@@ -45,6 +45,8 @@ class TextBlock:
     style: dict = field(default_factory=dict)
     # Free-transform rotation in degrees (clockwise), applied when lettering.
     rotation: float = 0.0
+    # Font size used by the last render (transient, never serialised).
+    rendered_size: int = field(default=0, compare=False, repr=False)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-ready mapping."""

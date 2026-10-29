@@ -119,6 +119,30 @@ class PageEditor:
             block.bubble_bbox = box
         self.project.save()
 
+    def lock_font_size(self, block: TextBlock) -> int:
+        """Freeze the glyph size before a frame transform changes the box.
+
+        After this the renderer keeps the size and only re-wraps, so dragging a
+        handle moves the frame instead of stretching the letters.
+        """
+        existing = int((block.style or {}).get("font_size") or 0)
+        if existing:
+            return existing
+        size = int(getattr(block, "rendered_size", 0) or 0)
+        if not size:
+            size = self._measure_font_size(block)
+        if size:
+            block.style = {**(block.style or {}), "font_size": size}
+        return size
+
+    def _measure_font_size(self, block: TextBlock) -> int:
+        if self.renderer is None:
+            self.renderer = PageRenderer()
+        try:
+            return int(self.renderer.measure(block, self.image_path))
+        except Exception:  # noqa: BLE001 - never block editing on a measure failure
+            return 0
+
     def set_style(self, block: TextBlock, style: dict) -> None:
         """Persist manual typography overrides for one block."""
         block.style = {key: value for key, value in style.items() if value not in ("", 0, 0.0)}
