@@ -116,6 +116,27 @@ def test_undo_restores_previous_inpainted_bytes(window):
     assert path.read_bytes() == b"before"
 
 
+def test_undo_restores_a_rotated_frame(window):
+    block = window.editor.page.blocks[0]
+    window.on_block_rotated(block.id, 32.0)
+    assert next(b for b in window.editor.page.blocks if b.id == block.id).rotation == 32.0
+
+    window.undo()
+
+    assert next(b for b in window.editor.page.blocks if b.id == block.id).rotation == 0.0
+
+
+def test_undo_restores_a_moved_frame(window):
+    block = window.editor.page.blocks[0]
+    original = block.text_bbox or block.bbox
+    window.on_geometry_changed(block.id, (original[0] + 20, original[1] + 30, original[2] + 20, original[3] + 30))
+
+    window.undo()
+
+    restored = next(b for b in window.editor.page.blocks if b.id == block.id)
+    assert (restored.text_bbox or restored.bbox) == original
+
+
 def test_region_action_keeps_block_selection(window):
     window.select_block(0)
     window.region = [(0, 0), (10, 0), (10, 10), (0, 10)]

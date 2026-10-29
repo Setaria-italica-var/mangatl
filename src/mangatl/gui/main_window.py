@@ -89,8 +89,10 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("项目里没有图片：请把页面放进该目录")
 
     def _install_shortcuts(self) -> None:
-        """Global keys: Home/F fit, Esc cancels, R rotate, F11 full screen."""
+        """Global keys: undo/save, previews, fit, rotate, full screen."""
         for keys, slot in (
+            ("Ctrl+Z", self.undo),
+            ("Ctrl+S", self.save),
             ("Ctrl+1", lambda: self.show_view("source")),
             ("Ctrl+2", lambda: self.show_view("erased")),
             ("Ctrl+3", lambda: self.show_view("result")),
