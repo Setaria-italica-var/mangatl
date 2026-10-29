@@ -19,6 +19,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from mangatl.domain.block import TextBlock
+from mangatl.domain.plausibility import plausibility
 from mangatl.domain.quality import looks_garbled
 
 MIN_LENGTH = 2
@@ -59,11 +60,14 @@ class HybridOcr:
             self.fallback.recognize(image_path, suspects)
 
         for block in suspects:
-            # Keep whichever engine produced more text; never let the fallback
-            # blank a block that the primary engine did read.
-            if weak(block.text):
-                block.text = before[id(block)]
-            if not block.text.strip():
+            # Keep whichever candidate looks more like Japanese; never let the
+            # fallback blank a block the primary engine did read.
+            primary_text = before[id(block)]
+            fallback_text = block.text
+            if plausibility(fallback_text) < plausibility(primary_text):
+                block.text = primary_text
+            if plausibility(block.text) < 0.5:
                 block.needs_review = True
+            if not block.text.strip():
                 block.confidence = 0.0
         return list(blocks)

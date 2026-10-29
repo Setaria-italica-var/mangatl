@@ -25,6 +25,7 @@ from mangatl.adapters.translators.echo import EchoTranslator
 from mangatl.core.config import RunConfig
 from mangatl.domain.block import TextBlock
 from mangatl.domain.merge import merge_blocks
+from mangatl.domain.plausibility import plausibility
 from mangatl.domain.project import Page, Project
 from mangatl.domain.quality import looks_garbled
 from mangatl.domain.roles import BlockRole, RoleConfig, classify, is_translatable
@@ -463,6 +464,15 @@ def assign_roles(page: Page, config: RunConfig) -> None:
         block.bbox_erase = not (block.area_fraction > 0.35 and coverage < 0.1)
         block.role = decision.role.value
         block.role_reasons = decision.reasons
+        if (
+            block.text.strip()
+            and plausibility(block.text) < 0.45
+            and block.role in (BlockRole.DIALOGUE.value, BlockRole.SFX.value)
+        ):
+            block.role = BlockRole.TEXTURE.value
+            block.role_reasons = (*decision.reasons, "implausible-ocr")
+            block.needs_review = True
+            continue
         if looks_garbled(block.text) and block.role in (
             BlockRole.DIALOGUE.value,
             BlockRole.SFX.value,
