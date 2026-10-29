@@ -226,7 +226,13 @@ def _build_parser() -> argparse.ArgumentParser:
     demo.add_argument("--seed", type=int, default=7)
 
     gui = sub.add_parser("gui", help="open the desktop editor on a project")
-    gui.add_argument("directory", type=Path, nargs="?", default=Path("."))
+    gui.add_argument(
+        "directory",
+        type=Path,
+        nargs="?",
+        default=None,
+        help="manga folder; omit to reopen the last one",
+    )
 
     check = sub.add_parser("translate-test", help="send one sentence to the configured LLM")
     check.add_argument("--text", default="おはよう")

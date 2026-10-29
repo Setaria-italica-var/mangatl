@@ -55,7 +55,10 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"mangatl — {project_dir.name}")
         self.resize(1560, 960)
 
+        from mangatl.gui import recent
+
         self.project = Project.open(project_dir)
+        recent.remember(project_dir)
         if not len(self.project):
             self.project.scan()
         self.page_index = 0
@@ -145,6 +148,9 @@ class MainWindow(QMainWindow):
         )
         bar.addWidget(
             self._tool_button(FIF.FULL_SCREEN, "全屏 (F11)", self.toggle_fullscreen)
+        )
+        bar.addWidget(
+            self._tool_button(FIF.FOLDER, "打开文件夹", self.open_folder_dialog)
         )
         bar.addWidget(self._tool_button(FIF.SAVE, "保存", self.save))
         bar.addWidget(self._tool_button(FIF.RETURN, "撤销", self.undo))
@@ -796,6 +802,38 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"强调色已切换为 {colour}")
 
     # -- misc -------------------------------------------------------------
+    def open_folder_dialog(self) -> None:
+        """Switch to another manga folder."""
+        from PySide6.QtWidgets import QFileDialog
+
+        chosen = QFileDialog.getExistingDirectory(
+            self, "选择漫画文件夹", str(self.project.directory)
+        )
+        if not chosen:
+            return
+        self.load_project(Path(chosen))
+
+    def load_project(self, folder: Path) -> None:
+        """Switch this window to another manga folder."""
+        from mangatl.gui import recent
+
+        self.project = Project.open(folder)
+        if not len(self.project):
+            self.project.scan()
+        recent.remember(folder)
+        self.page_index = 0
+        self.selected_id = None
+        self.selected_ids = []
+        self.region = None
+        self.canvas.clear_selection()
+        self.sheets["search"].project = self.project
+        self.setWindowTitle(f"mangatl — {folder.name}")
+        self.refresh_pages()
+        if len(self.project):
+            self.load_page(0)
+        else:
+            self.statusBar().showMessage("这个文件夹里没有图片")
+
     def toggle_fullscreen(self) -> None:
         """Switch between maximised and true full screen."""
         if self.isFullScreen():

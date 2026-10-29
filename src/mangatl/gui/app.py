@@ -31,8 +31,8 @@ def _install_qt_log_filter() -> None:
     qInstallMessageHandler(handler)
 
 
-def run(project_dir: Path | str) -> int:
-    """Open the editor on a project directory and return the exit code."""
+def run(project_dir: Path | str | None = None) -> int:
+    """Open the last book, or the welcome page, and return the exit code."""
     try:
         from PySide6.QtWidgets import QApplication
     except ImportError:
@@ -44,10 +44,13 @@ def run(project_dir: Path | str) -> int:
 
     _install_qt_log_filter()
     from mangatl.gui.fluent import init_fluent
+    from mangatl.gui.home import HomeWindow, welcome_or_folder
     from mangatl.gui.main_window import MainWindow
 
     application = QApplication.instance() or QApplication(sys.argv[:1])
     init_fluent(application)
-    window = MainWindow(Path(project_dir))
+
+    folder = welcome_or_folder(Path(project_dir) if project_dir else None)
+    window = MainWindow(folder) if folder is not None else HomeWindow()
     window.showMaximized()
     return application.exec()
