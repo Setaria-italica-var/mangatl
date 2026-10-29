@@ -295,7 +295,7 @@ class MainWindow(QMainWindow):
 
     # -- right module rail ------------------------------------------------
     def _build_module_panel(self) -> None:
-        self.sheets = build_sheets(self.project)
+        self.sheets = build_sheets(self.project, self._service_factory)
         dock = QDockWidget("模块", self)
         dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
         container = QWidget()
@@ -339,12 +339,20 @@ class MainWindow(QMainWindow):
         self.sheets["blocks"].blockSelected.connect(self.select_block)
         self.sheets["blocks"].blockEdited.connect(self.on_block_edited)
         self.sheets["search"].jumpRequested.connect(self._jump_to_block)
+        if "batch" in self.sheets:
+            self.sheets["batch"].finished = self.on_batch_finished
         self.sheets["run"].runRequested.connect(self.on_run_requested)
         self.sheets["settings"].accentChanged.connect(self.on_accent)
 
         self.rail_current = "editor"
         self.rail_buttons["editor"].setChecked(True)
         self.stack.setCurrentWidget(self.sheets["editor"])
+
+    def _service_factory(self):
+        """Build a pipeline service with the engines chosen in the bottom bar."""
+        from mangatl.gui.pipeline_bridge import build_default_service
+
+        return build_default_service(self.project, **self._engines())
 
     def show_module(self, key: str) -> None:
         """Switch the right panel to a module."""
@@ -415,6 +423,8 @@ class MainWindow(QMainWindow):
         self.page_list.blockSignals(False)
         self.sheets["search"].project = self.project
         self.sheets["search"].refresh()
+        if "batch" in self.sheets:
+            self.sheets["batch"].set_project(self.project)
         self._refresh_sheets()
 
     def _touch_page(self) -> None:
@@ -996,6 +1006,12 @@ class MainWindow(QMainWindow):
         self.refresh_pages()
         self.load_page(self.page_index, keep_selection=True)
 
+    def on_batch_finished(self) -> None:
+        """Refresh pages and the current view after a batch run."""
+        self.refresh_pages()
+        if len(self.project):
+            self.load_page(self.page_index, keep_selection=True)
+
     def on_accent(self, colour: str) -> None:
         set_accent(colour)
         self.statusBar().showMessage(f"强调色已切换为 {colour}")
@@ -1118,6 +1134,8 @@ class MainWindow(QMainWindow):
         self.region = None
         self.canvas.clear_selection()
         self.sheets["search"].project = self.project
+        if "batch" in self.sheets:
+            self.sheets["batch"].set_project(self.project)
         self.setWindowTitle(f"mangatl — {folder.name}")
         self.refresh_pages()
         if len(self.project):

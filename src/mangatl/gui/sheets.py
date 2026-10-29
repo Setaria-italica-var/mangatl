@@ -43,6 +43,7 @@ SHEET_TITLES = {
     "blocks": "文本块",
     "search": "搜索",
     "run": "运行",
+    "batch": "批量",
     "settings": "设置",
 }
 
@@ -51,6 +52,7 @@ SHEET_ICONS = {
     "blocks": FIF.TILES,
     "search": FIF.SEARCH,
     "run": FIF.PLAY,
+    "batch": FIF.SYNC,
     "settings": FIF.SETTING,
 }
 
@@ -511,12 +513,17 @@ class SettingsSheet(QWidget):
         layout.addStretch(1)
 
 
-def build_sheets(project: Project) -> dict[str, QWidget]:
+def build_sheets(project: Project, service_factory=None) -> dict[str, QWidget]:
     """Create the standard module panels."""
-    return {
+    sheets: dict[str, QWidget] = {
         "editor": EditorSheet(),
         "blocks": BlocksSheet(),
         "search": SearchSheet(project),
         "run": RunSheet(),
         "settings": SettingsSheet(),
     }
+    if service_factory is not None:
+        from mangatl.gui.batch import BatchSheet
+
+        sheets["batch"] = BatchSheet(project, service_factory)
+    return sheets
