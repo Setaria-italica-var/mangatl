@@ -33,6 +33,7 @@ class RunConfig:
     erase_background: bool = False
     erase_scope: str = "strict"
     bubbles: str = "auto"
+    require_translation: bool = True
     bubble_model: str = "data/models/bubble_detector.onnx"
     keep_blocks: tuple[str, ...] = ()
     force_blocks: tuple[str, ...] = ()

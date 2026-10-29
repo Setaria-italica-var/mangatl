@@ -25,6 +25,7 @@ from mangatl.adapters.translators.echo import EchoTranslator
 from mangatl.core.config import RunConfig
 from mangatl.domain.block import TextBlock
 from mangatl.domain.project import Page, Project
+from mangatl.domain.quality import looks_garbled
 from mangatl.domain.roles import BlockRole, RoleConfig, classify, is_translatable
 from mangatl.render.renderer import PageRenderer
 
@@ -358,7 +359,7 @@ def annotate_with_model(page: Page, image_path: Path, detector) -> bool:
     except Exception:  # a broken model must not stop the page
         return False
     if not bubbles:
-        return False
+        return False  # let the heuristic try: a page the model misses entirely
     for block in page.blocks:
         block.in_bubble = covered(block.bbox, bubbles)
         best = max(bubbles, key=lambda bubble: coverage(block.bbox, [bubble]), default=None)
@@ -410,6 +411,10 @@ def assign_roles(page: Page, config: RunConfig) -> None:
             mask_coverage=coverage,
             config=settings,
         )
+        if block.role == BlockRole.SYMBOL.value and not block.translation.strip():
+            # Symbols are copied verbatim, so they can be erased even when the
+            # translate stage has not run.
+            block.translation = block.text
         block.mask_coverage = coverage
         block.area_fraction = block_area_fraction(page, block)
         # A box that covers a large part of the page but contains little text is
@@ -417,6 +422,15 @@ def assign_roles(page: Page, config: RunConfig) -> None:
         block.bbox_erase = not (block.area_fraction > 0.35 and coverage < 0.1)
         block.role = decision.role.value
         block.role_reasons = decision.reasons
+        if looks_garbled(block.text) and block.role in (
+            BlockRole.DIALOGUE.value,
+            BlockRole.SFX.value,
+        ):
+            # Engine noise on stylised lettering: never erase or translate it.
+            block.role = BlockRole.TEXTURE.value
+            block.role_reasons = (*decision.reasons, "garbled-ocr")
+            block.needs_review = True
+            continue
         if block.role in (BlockRole.SFX.value, BlockRole.SYMBOL.value) and not block.in_bubble:
             # Sound effects printed over the artwork are part of the drawing:
             # keep them untouched and out of the translation budget.
@@ -455,5 +469,9 @@ def should_erase(block: TextBlock, config: RunConfig) -> bool:
     if not block.in_bubble and not config.erase_background:
         # Text embedded in the artwork (sound effects, signage) is left alone
         # unless the caller explicitly asks for background erasing.
+        return False
+    if config.require_translation and not block.translation.strip():
+        # Erasing without a replacement leaves an empty bubble, which is worse
+        # than leaving the original text in place.
         return False
     return not (block.role == BlockRole.SFX.value and config.sfx_policy != "erase")
