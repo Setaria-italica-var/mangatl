@@ -89,6 +89,7 @@ def test_result_view_shows_a_frame_for_every_block(window):
 
 
 def test_undo_removes_a_newly_created_inpainted_page(window):
+    window.editor.erased_path.unlink(missing_ok=True)
     window._snapshot(images=("inpainted", "result"))
     path = window.editor.erased_path
     path.parent.mkdir(parents=True, exist_ok=True)
