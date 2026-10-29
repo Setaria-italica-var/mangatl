@@ -59,8 +59,17 @@ def app_root() -> Path:
     return start
 
 
+LOG_PATH: Path | None = None
+
+
 def log(message: str) -> None:
     print(message, flush=True)
+    if LOG_PATH is not None:
+        try:
+            with open(LOG_PATH, "a", encoding="utf-8") as handle:
+                handle.write(message + "\n")
+        except OSError:
+            pass
 
 
 def configure_stdio() -> None:
@@ -219,7 +228,15 @@ def main(argv: list[str] | None = None) -> int:
     options = parser.parse_args(argv)
 
     configure_stdio()
+    global LOG_PATH
     root = app_root()
+    LOG_PATH = (
+        Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else root
+    ) / "mangatl-launcher.log"
+    try:
+        LOG_PATH.write_text("", encoding="utf-8")
+    except OSError:
+        LOG_PATH = None
     log("=" * 60)
     log("  mangatl 启动器")
     log("=" * 60)
@@ -273,7 +290,10 @@ def main(argv: list[str] | None = None) -> int:
         completed = subprocess.run(command, cwd=str(root))
     except KeyboardInterrupt:
         return 0
-    return completed.returncode
+    if completed.returncode != 0:
+        log(f"编辑器退出码 {completed.returncode}")
+        return _pause(completed.returncode, options)
+    return 0
 
 
 def _pause(code: int, options) -> int:
@@ -283,5 +303,26 @@ def _pause(code: int, options) -> int:
     return code
 
 
+def _entry() -> int:
+    """Keep a double-click window open and leave a log when something explodes."""
+    try:
+        return main()
+    except SystemExit:
+        raise
+    except BaseException:  # noqa: BLE001 - last-resort diagnostic
+        import traceback
+
+        print(traceback.format_exc())
+        try:
+            target = Path(sys.executable).resolve().parent / "mangatl-launcher-crash.log"
+            target.write_text(traceback.format_exc(), encoding="utf-8")
+            print(f"错误已写入：{target}")
+        except OSError:
+            pass
+        with contextlib.suppress(EOFError, RuntimeError):
+            input("启动失败，按回车退出 …")
+        return 1
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(_entry())

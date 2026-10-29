@@ -40,6 +40,27 @@ python tools/build_launcher.py --onedir   :: 目录版 dist\mangatl-launcher-fol
 
 单文件版运行时会解压到系统临时目录；如果公司策略禁止写临时目录，用目录版。
 
+## 排错
+
+双击无反应或闪退时：
+
+1. 打开终端手动运行，能看到完整输出：
+
+```bat
+cd /d D:\mangatl\dist
+mangatl-launcher.exe
+```
+
+2. 同目录会生成 `mangatl-launcher.log`（每一步）和 `mangatl-launcher-crash.log`（异常堆栈），把它们发出来即可定位。
+
+3. 单文件版需要往系统临时目录解压。若 `%TEMP%` 被安全软件拦截 / 公司策略禁止写入，改用目录版：
+
+```bat
+dist\mangatl-launcher-folder\mangatl-launcher-folder.exe
+```
+
+4. 杀软误报：PyInstaller 打包的 exe 常被拦。把 `mangatl\dist` 加入白名单，或右键 exe → 属性 → 解除锁定。
+
 ## 便携部署结构
 
 ```
