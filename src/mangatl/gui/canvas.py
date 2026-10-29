@@ -73,7 +73,12 @@ class PageCanvas(QGraphicsView):
             # Never clear the view for an unreadable file: keep the previous page.
             return
         self.scene().clear()
+        # scene().clear() deletes the C++ items; drop the Python wrappers too, or
+        # later removals raise "Internal C++ object already deleted".
         self._overlay_items.clear()
+        self._handle_items.clear()
+        self._preview = None
+        self._selection = None
         self._pixmap_item = self.scene().addPixmap(pixmap)
         self.scene().setSceneRect(QRectF(pixmap.rect()))
         self.fit()
@@ -83,7 +88,7 @@ class PageCanvas(QGraphicsView):
         self._last_blocks = list(blocks)
         self._last_selected = tuple(selected_ids)
         for item in self._overlay_items.values():
-            self.scene().removeItem(item)
+            self._remove_item(item)
         self._overlay_items.clear()
         self._clear_handles()
         self._selected_id = selected_ids[0] if selected_ids else None
@@ -289,7 +294,7 @@ class PageCanvas(QGraphicsView):
     def _clear_selection(self) -> None:
         self._selection_points = []
         if self._selection is not None:
-            self.scene().removeItem(self._selection)
+            self._remove_item(self._selection)
             self._selection = None
 
     def selection_bbox(self) -> tuple[int, int, int, int] | None:
@@ -309,9 +314,18 @@ class PageCanvas(QGraphicsView):
         self.fit()
         event.accept()
 
+    def _remove_item(self, item) -> None:
+        """Remove a scene item, tolerating wrappers whose C++ object is gone."""
+        try:
+            scene = item.scene()
+        except RuntimeError:
+            return
+        if scene is not None:
+            scene.removeItem(item)
+
     def _clear_handles(self) -> None:
         for item in self._handle_items.values():
-            self.scene().removeItem(item)
+            self._remove_item(item)
         self._handle_items.clear()
 
     def _build_handles(self, bbox: tuple[int, int, int, int]) -> None:
@@ -341,5 +355,5 @@ class PageCanvas(QGraphicsView):
 
     def _clear_preview(self) -> None:
         if self._preview is not None:
-            self.scene().removeItem(self._preview)
+            self._remove_item(self._preview)
             self._preview = None
