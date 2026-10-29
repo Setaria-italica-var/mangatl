@@ -207,21 +207,15 @@ class PageEditor:
         The detector's text mask restricts the erase to actual lettering, so the
         lasso cannot smear artwork.
         """
-        if self.detector is None:
-            self.detector = CtdDetector()
         if self.inpainter is None:
-            self.inpainter = MaskedInpainter()
+            self.inpainter = self._best_inpainter()
         width, height = self._size()
-        x1, y1, x2, y2 = clamp_bbox(polygon_bbox(points), width, height)
-        mask = self.detector.text_mask(self.image_path)
-        trimmed = np.zeros_like(mask)
-        trimmed[y1:y2, x1:x2] = mask[y1:y2, x1:x2]
-        scratch = TextBlock(id=0, bbox=(x1, y1, x2, y2))
+        mask = np.array(polygon_mask(points, width, height)) > 0
         destination = self.erased_path
         # Start from the current erased page, not the original: otherwise every
-        # new region erase would undo the previous ones.
+        # new region fill would undo the previous ones.
         source = destination if destination.is_file() else self.image_path
-        self.inpainter.erase(source, destination, [scratch], mask=trimmed)
+        self.inpainter.fill_region(source, destination, mask)
         self.page.mark("erase")
         self.project.save()
         return destination
@@ -250,6 +244,14 @@ class PageEditor:
         self.page.mark("erase")
         self.project.save()
         return destination
+
+    def _best_inpainter(self):
+        """LaMa when the weights are present, otherwise the mask filler."""
+        from mangatl.adapters.inpaint.lama import DEFAULT_MODEL, LamaInpainter
+
+        if Path(DEFAULT_MODEL).is_file():
+            return LamaInpainter()
+        return MaskedInpainter()
 
     def rerender(self) -> Path:
         """Letter the page with the current blocks."""

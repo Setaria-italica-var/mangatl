@@ -163,7 +163,7 @@ class EditorSheet(QWidget):
         self.btn_detect = PushButton(FIF.SEARCH, "重新检测")
         self.btn_detect.clicked.connect(lambda: self.regionAction.emit("detect"))
         row3.addWidget(self.btn_detect)
-        self.btn_erase = PushButton(FIF.BROOM, "重新擦除")
+        self.btn_erase = PushButton(FIF.BROOM, "局部重绘")
         self.btn_erase.clicked.connect(lambda: self.regionAction.emit("erase"))
         row3.addWidget(self.btn_erase)
         layout.addLayout(row3)

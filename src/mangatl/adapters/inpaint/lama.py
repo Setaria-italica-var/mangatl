@@ -63,7 +63,33 @@ class LamaInpainter:
         if not erase.any():
             return self.fallback.erase(image_path, destination, blocks, mask=mask)
 
-        filled = self._run(pixels, erase)
+        try:
+            filled = self._run(pixels, erase)
+        except Exception:  # noqa: BLE001 - drop to the local filler on model errors
+            return self.fallback.fill_region(image_path, destination, mask)
+        result = pixels.copy()
+        result[erase] = filled[erase]
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(result).save(destination)
+        return destination
+
+    def fill_region(
+        self, image_path: Path, destination: Path, mask: np.ndarray
+    ) -> Path:
+        """Photoshop-style fill of the whole selection, LaMa when available."""
+        if not self.available:
+            return self.fallback.fill_region(image_path, destination, mask)
+        with Image.open(image_path) as handle:
+            pixels = np.asarray(handle.convert("RGB"))
+        erase = np.asarray(mask, dtype=bool)
+        if erase.shape != pixels.shape[:2]:
+            erase = erase[: pixels.shape[0], : pixels.shape[1]]
+        if not erase.any():
+            return destination
+        try:
+            filled = self._run(pixels, erase)
+        except Exception:  # noqa: BLE001 - drop to the local filler on model errors
+            return self.fallback.fill_region(image_path, destination, mask)
         result = pixels.copy()
         result[erase] = filled[erase]
         destination.parent.mkdir(parents=True, exist_ok=True)

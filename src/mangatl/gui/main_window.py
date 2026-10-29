@@ -219,7 +219,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(2)
         for icon, tip, slot in (
             (FIF.SEARCH, "重新检测", "detect"),
-            (FIF.BROOM, "重新擦除", "erase"),
+            (FIF.BROOM, "局部重绘", "erase"),
             (FIF.ADD, "添加文本块", "add"),
         ):
             button = TransparentToolButton(icon)
@@ -599,7 +599,7 @@ class MainWindow(QMainWindow):
             ("重新识别所选", FIF.SYNC, self.reocr_block),
             ("翻译所选", FIF.GLOBE, self.translate_block),
             ("重新检测选区", FIF.SEARCH, self.redetect_region),
-            ("重绘选区（重新擦除）", FIF.BRUSH, self.erase_region),
+            ("重绘选区（原地填充）", FIF.BRUSH, self.erase_region),
             ("恢复选区至原图", FIF.RETURN, self.restore_selected_region),
         ):
             menu.addAction(Action(text, menu, icon=icon, triggered=slot))

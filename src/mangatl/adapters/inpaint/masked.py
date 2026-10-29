@@ -167,6 +167,66 @@ class MaskedInpainter:
         destination.parent.mkdir(parents=True, exist_ok=True)
         mode = "RGBA" if out.shape[2] == 4 else "RGB"
         Image.fromarray(out, mode=mode).save(destination)
+        return destination
+
+    def fill_region(
+        self,
+        image_path: Path,
+        destination: Path,
+        mask: np.ndarray,
+    ) -> Path:
+        """Photoshop-style fill: repaint everything inside the selection.
+
+        Unlike :meth:`erase`, this does not consult the text detector, so text the
+        model missed is removed too. Flat surroundings take a median colour; busy
+        ones fall back to diffusion.
+        """
+        with Image.open(image_path) as handle:
+            image = handle.convert("RGBA" if "A" in handle.getbands() else "RGB")
+        pixels = np.array(image)
+        region = np.asarray(mask, dtype=bool)
+        height, width = region.shape[:2]
+        if region.shape != pixels.shape[:2]:
+            region = region[: pixels.shape[0], : pixels.shape[1]]
+        if not region.any():
+            return destination
+
+        out = pixels.copy()
+        gray = np.asarray(Image.fromarray(pixels[..., :3]).convert("L"))
+        ring = dilate(region, 3) & ~region
+        ring_values = gray[ring]
+        flat = ring_values.size > 0 and float(ring_values.std()) < 18
+        if flat:
+            colour = np.median(pixels[ring][:, :3], axis=0)
+            out[region, :3] = colour.astype(out.dtype)
+        else:
+            filled = self._opencv_fill(pixels[..., :3], dilate(region, 2))
+            if filled is not None:
+                out[..., :3] = filled
+            else:
+                out = diffuse(out, region, iterations=self.config.diffusion.iterations)
+
+        if out.shape[2] == 4:
+            out[..., 3] = pixels[..., 3]
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        mode = "RGBA" if out.shape[2] == 4 else "RGB"
+        Image.fromarray(out, mode=mode).save(destination)
+        return destination
+
+    @staticmethod
+    def _opencv_fill(pixels: np.ndarray, region: np.ndarray) -> np.ndarray | None:
+        """Content-aware fill with OpenCV, when available."""
+        try:
+            import cv2
+        except ImportError:
+            return None
+        mask = (region.astype(np.uint8)) * 255
+        try:
+            bgr = cv2.cvtColor(pixels, cv2.COLOR_RGB2BGR)
+            filled = cv2.inpaint(bgr, mask, 4, cv2.INPAINT_TELEA)
+            return cv2.cvtColor(filled, cv2.COLOR_BGR2RGB)
+        except Exception:  # noqa: BLE001 - OpenCV failure must not break erasing
+            return None
 
     @staticmethod
     def _boxes_as_mask(

@@ -245,6 +245,11 @@ def _build_parser() -> argparse.ArgumentParser:
     fetch.add_argument("--no-export", action="store_true")
     fetch.add_argument("--imgsz", type=int, default=640)
     fetch.add_argument("--list", action="store_true", help="only list the repository files")
+    fetch.add_argument(
+        "--lama",
+        action="store_true",
+        help="download LaMa inpainting weights (~200 MB) for Photoshop-like fills",
+    )
 
     inspect = sub.add_parser("inspect", help="print the stored block decisions for a project")
     inspect.add_argument("directory", type=Path)
@@ -346,6 +351,30 @@ def _force_offline() -> None:
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
     os.environ.setdefault("HF_HOME", str(Path("data/hf").resolve()))
+
+
+LAMA_URL = "https://hf-mirror.com/Carve/LaMa-ONNX/resolve/main/lama.onnx"
+
+
+def _run_fetch_lama(destination: Path) -> int:
+    import urllib.request
+
+    if destination.is_file():
+        print(f"already present: {destination}")
+        return 0
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    request = urllib.request.Request(LAMA_URL, headers={"User-Agent": "mangatl"})
+    with urllib.request.urlopen(request, timeout=120) as response:
+        total = int(response.headers.get("Content-Length", 0))
+        with open(destination, "wb") as handle:
+            done = 0
+            while chunk := response.read(1 << 20):
+                handle.write(chunk)
+                done += len(chunk)
+                if total:
+                    print(f"\r{done / 1e6:7.1f} / {total / 1e6:.0f} MB", end="", flush=True)
+    print(f"\nsaved {destination} ({destination.stat().st_size / 1e6:.0f} MB)")
+    return 0
 
 
 def _run_fetch_models(args) -> int:
@@ -566,6 +595,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "inspect":
         return _run_inspect(args.directory)
     if args.command == "fetch-models":
+        if getattr(args, "lama", False):
+            return _run_fetch_lama(Path("data/models/lama.onnx"))
         return _run_fetch_models(args)
     if args.command == "vision-test":
         return _run_vision_test(
