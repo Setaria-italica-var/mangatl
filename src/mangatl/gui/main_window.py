@@ -72,7 +72,7 @@ class MainWindow(QMainWindow):
         self._preview_timer.setInterval(350)
         self._preview_timer.timeout.connect(self._auto_rerender)
         self.region: list[tuple[float, float]] | None = None
-        self._undo: list[list[dict]] = []
+        self._undo: dict[str, list[dict]] = {}
 
         self._build_toolbar()
         self._build_central()
@@ -446,7 +446,6 @@ class MainWindow(QMainWindow):
             # moving on, otherwise the buttons hover over the new page.
             self.region = None
             self.canvas.clear_selection()
-        self._undo.clear()
         self.canvas.show_image(self.editor.image_path, keep_selection=keep_selection)
         self.canvas.set_blocks(page.blocks, self.selected_ids if keep_selection else ())
         self.show_view(self.view_mode, quiet=True)
@@ -653,6 +652,7 @@ class MainWindow(QMainWindow):
         entry = {
             "blocks": [dict(b.to_dict()) for b in self.editor.page.blocks],
             "page": self.editor.page.name,
+            "images": list(images),
         }
         for key in images:
             path = (
@@ -660,27 +660,34 @@ class MainWindow(QMainWindow):
             )
             if path.is_file():
                 entry[key] = path.read_bytes()
-        self._undo.append(entry)
-        if len(self._undo) > 20:
-            self._undo.pop(0)
+        stack = self._undo.setdefault(self.editor.page.name, [])
+        stack.append(entry)
+        if len(stack) > 20:
+            stack.pop(0)
 
     def undo(self) -> None:
-        if self.editor is None or not self._undo:
+        if self.editor is None:
             return
         from mangatl.domain.block import TextBlock
 
-        snapshot = self._undo.pop()
-        if snapshot.get("page") not in (None, self.editor.page.name):
-            self.statusBar().showMessage("撤销栈属于另一页，已忽略")
+        page_name = self.editor.page.name
+        stack = self._undo.get(page_name, [])
+        if not stack:
+            self.statusBar().showMessage("本页没有可撤销的操作")
             return
+        snapshot = stack.pop()
         self.editor.page.blocks = [
             TextBlock.from_dict(item) for item in snapshot.get("blocks", [])
         ]
         restored = []
+        tracked = set(snapshot.get("images", ()))
         for key, path in (
             ("inpainted", self.editor.erased_path),
             ("result", self.editor.result_path),
         ):
+            if key not in tracked:
+                # Not part of this snapshot: leave the file alone.
+                continue
             if key not in snapshot:
                 # The file did not exist before the edit: undo removes it again.
                 if path.is_file():

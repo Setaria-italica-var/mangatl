@@ -145,6 +145,35 @@ def test_undo_restores_a_moved_frame(window):
     assert (restored.text_bbox or restored.bbox) == original
 
 
+def test_block_undo_does_not_delete_page_images(window):
+    erased = window.editor.erased_path
+    erased.parent.mkdir(parents=True, exist_ok=True)
+    erased.write_bytes(b"keep-me")
+    block = window.editor.page.blocks[0]
+    window.on_block_edited(block.id, "t", "翻", "dialogue")
+
+    window.undo()
+
+    assert erased.is_file()
+    assert erased.read_bytes() == b"keep-me"
+
+
+def test_undo_is_per_page(window):
+    first = window.editor.page.blocks[0]
+    window.on_block_edited(first.id, "p1", "page-one", "dialogue")
+    window.load_page(1)
+    second = window.editor.page.blocks[0]
+    window.on_block_edited(second.id, "p2", "page-two", "dialogue")
+
+    window.undo()
+    page_two = next(b for b in window.editor.page.blocks if b.id == second.id)
+    window.load_page(0)
+    page_one = next(b for b in window.editor.page.blocks if b.id == first.id)
+
+    assert page_two.translation == ""
+    assert page_one.translation == "page-one"
+
+
 def test_region_action_keeps_block_selection(window):
     window.select_block(0)
     window.region = [(0, 0), (10, 0), (10, 10), (0, 10)]
