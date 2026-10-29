@@ -26,21 +26,33 @@ NEUTRAL_CONFIDENCE = 0.6
 
 
 def local_snapshot(model_name: str = DEFAULT_MODEL) -> str | None:
-    """Resolve a cached HuggingFace snapshot directory for ``model_name``.
+    """Resolve a cached snapshot directory for ``model_name``.
 
-    Passing a local directory to ``from_pretrained`` skips the hub entirely, which
-    is the only reliable way to stay offline: the library still issues HEAD
-    requests when it is given a repo id, even with ``HF_HUB_OFFLINE`` set.
+    Every candidate root is checked, in order: the project cache (``data/hf``),
+    ``HF_HOME``/``HUGGINGFACE_HUB_CACHE``, then the user cache. Returning a real
+    directory is what keeps the library offline: given a repo id it always issues
+    HEAD requests, whatever the environment says.
     """
-    home = os.environ.get("HF_HOME") or os.environ.get("HUGGINGFACE_HUB_CACHE")
-    root = Path(home) if home else Path.home() / ".cache" / "huggingface"
-    hub = root / "hub" if (root / "hub").is_dir() else root
+    roots: list[Path] = [Path("data/hf")]
+    for variable in ("HF_HOME", "HUGGINGFACE_HUB_CACHE"):
+        value = os.environ.get(variable)
+        if value:
+            roots.append(Path(value))
+    roots.append(Path.home() / ".cache" / "huggingface")
+
     slug = "models--" + model_name.replace("/", "--")
-    snapshots = hub / slug / "snapshots"
-    if not snapshots.is_dir():
-        return None
-    candidates = sorted((item for item in snapshots.iterdir() if item.is_dir()), reverse=True)
-    return str(candidates[0]) if candidates else None
+    for root in roots:
+        for hub in (root / "hub", root):
+            snapshots = hub / slug / "snapshots"
+            if not snapshots.is_dir():
+                continue
+            candidates = sorted(
+                (item for item in snapshots.iterdir() if item.is_dir()), reverse=True
+            )
+            for candidate in candidates:
+                if (candidate / "config.json").is_file():
+                    return str(candidate)
+    return None
 
 
 def build_model(factory, model_name: str, device: str):
@@ -75,8 +87,9 @@ class MangaOcrAdapter:
                 "downloads weights on first use; set HF_ENDPOINT=https://hf-mirror.com"
             ) from exc
         self.model_name = model_name
-        offline = os.environ.get("MANGATL_OFFLINE") == "1"
-        resolved = local_snapshot(model_name) if offline else None
+        # Prefer a cached snapshot unconditionally: it is the only way to avoid
+        # hub probes, and a local directory behaves identically when online.
+        resolved = local_snapshot(model_name)
         self._model = build_model(MangaOcr, resolved or model_name, device)
 
     def recognize(self, image_path: Path, blocks: Sequence[TextBlock]) -> list[TextBlock]:
