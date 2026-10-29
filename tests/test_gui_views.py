@@ -88,6 +88,29 @@ def test_result_view_shows_a_frame_for_every_block(window):
     assert len(window.canvas._overlay_items) == len(window.editor.page.blocks)
 
 
+def test_undo_removes_a_newly_created_inpainted_page(window):
+    window._snapshot(images=("inpainted", "result"))
+    path = window.editor.erased_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"fake")
+
+    window.undo()
+
+    assert not path.exists()
+
+
+def test_undo_restores_previous_inpainted_bytes(window):
+    path = window.editor.erased_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"before")
+    window._snapshot(images=("inpainted",))
+    path.write_bytes(b"after")
+
+    window.undo()
+
+    assert path.read_bytes() == b"before"
+
+
 def test_region_action_keeps_block_selection(window):
     window.select_block(0)
     window.region = [(0, 0), (10, 0), (10, 10), (0, 10)]

@@ -159,7 +159,7 @@ python -m mangatl fetch-models --lama      # 下载 LaMa 权重（约 208MB，�
 | `R` | 视图旋转 90° |
 | `F11` | 全屏切换 |
 | `PgUp` / `PgDn` | 上一页 / 下一页 |
-| `Ctrl+Z` | 撤销块编辑 |
+| `Ctrl+Z` | 撤销块编辑；**局部重绘/恢复原图也能撤销**（还原 `inpainted/`、`result/` 文件，最多 20 步） |
 | `Ctrl+S` | 保存 project.json |
 | `Ctrl+G` | 打开搜索模块 |
 

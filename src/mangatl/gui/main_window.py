@@ -644,11 +644,23 @@ class MainWindow(QMainWindow):
         )
 
     # -- block actions ----------------------------------------------------
-    def _snapshot(self) -> None:
-        if self.editor is not None:
-            self._undo.append([dict(b.to_dict()) for b in self.editor.page.blocks])
-            if len(self._undo) > 50:
-                self._undo.pop(0)
+    def _snapshot(self, images: tuple[str, ...] = ()) -> None:
+        """Remember state before an edit; ``images`` also snapshots page files."""
+        if self.editor is None:
+            return
+        entry = {
+            "blocks": [dict(b.to_dict()) for b in self.editor.page.blocks],
+            "page": self.editor.page.name,
+        }
+        for key in images:
+            path = (
+                self.editor.erased_path if key == "inpainted" else self.editor.result_path
+            )
+            if path.is_file():
+                entry[key] = path.read_bytes()
+        self._undo.append(entry)
+        if len(self._undo) > 20:
+            self._undo.pop(0)
 
     def undo(self) -> None:
         if self.editor is None or not self._undo:
@@ -656,11 +668,35 @@ class MainWindow(QMainWindow):
         from mangatl.domain.block import TextBlock
 
         snapshot = self._undo.pop()
-        self.editor.page.blocks = [TextBlock.from_dict(item) for item in snapshot]
+        if snapshot.get("page") not in (None, self.editor.page.name):
+            self.statusBar().showMessage("撤销栈属于另一页，已忽略")
+            return
+        self.editor.page.blocks = [
+            TextBlock.from_dict(item) for item in snapshot.get("blocks", [])
+        ]
+        restored = []
+        for key, path in (
+            ("inpainted", self.editor.erased_path),
+            ("result", self.editor.result_path),
+        ):
+            if key not in snapshot:
+                # The file did not exist before the edit: undo removes it again.
+                if path.is_file():
+                    path.unlink()
+                    restored.append(key)
+                continue
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temp = path.with_name(path.stem + ".undo" + path.suffix)
+            temp.write_bytes(snapshot[key])
+            temp.replace(path)
+            restored.append(key)
         self.editor.project.save()
-        self.canvas.set_blocks(self.editor.page.blocks)
+        self.sheets["editor"].show_block(None)
+        self.show_view(self.view_mode, quiet=True)
         self._touch_page()
-        self.statusBar().showMessage("已撤销")
+        self.statusBar().showMessage(
+            "已撤销" + ("（含画面）" if restored else "")
+        )
         self._schedule_render()
 
     def on_geometry_changed(self, block_id: int, bbox: tuple) -> None:
@@ -839,7 +875,7 @@ class MainWindow(QMainWindow):
     def erase_region(self) -> None:
         if self.editor is None or not self._require_region():
             return
-        self._snapshot()
+        self._snapshot(images=("inpainted", "result"))
         path = self.editor.erase_region(self.region or [])
         self.show_view("erased", quiet=True)
         self._touch_page()
