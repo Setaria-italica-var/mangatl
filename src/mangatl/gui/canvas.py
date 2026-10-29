@@ -42,6 +42,7 @@ class PageCanvas(QGraphicsView):
         self._overlay_items: dict[int, QGraphicsRectItem] = {}
         self._preview: QGraphicsPolygonItem | None = None
         self._mode = "select"
+        self._overlay_opacity = 1.0
         self._points: list[QPointF] = []
         self._panning = False
         self._pan_start = QPointF()
@@ -69,12 +70,15 @@ class PageCanvas(QGraphicsView):
 
     def set_blocks(self, blocks, selected_ids: Sequence[int] = ()) -> None:
         """Redraw block overlays."""
+        self._last_blocks = list(blocks)
+        self._last_selected = tuple(selected_ids)
         for item in self._overlay_items.values():
             self.scene().removeItem(item)
         self._overlay_items.clear()
         for block in blocks:
             x1, y1, x2, y2 = block.bbox
-            colour = ROLE_COLORS.get(block.role, QColor(200, 200, 200, 60))
+            colour = QColor(ROLE_COLORS.get(block.role, QColor(200, 200, 200, 60)))
+            colour.setAlpha(int(colour.alpha() * self._overlay_opacity))
             pen = QPen(QColor(255, 255, 255, 220), 1.2)
             if block.id in selected_ids:
                 pen = QPen(QColor(255, 214, 64), 2.2)
@@ -85,6 +89,13 @@ class PageCanvas(QGraphicsView):
             item.setData(0, block.id)
             self.scene().addItem(item)
             self._overlay_items[block.id] = item
+
+    def set_overlay_opacity(self, value: int) -> None:
+        """Set block overlay opacity, 0-100 (100 = fully visible)."""
+        self._overlay_opacity = max(0.0, min(1.0, value / 100.0))
+        if self._pixmap_item is None:
+            return
+        self.set_blocks(getattr(self, "_last_blocks", []), getattr(self, "_last_selected", ()))
 
     def rotate_view(self) -> None:
         """Rotate the view 90 degrees clockwise (the file is untouched)."""

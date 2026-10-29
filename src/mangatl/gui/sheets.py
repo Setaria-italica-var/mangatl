@@ -1,8 +1,8 @@
-"""Bottom sheet host: the Excel-like bar switches *modules*, not pages.
+"""Right-side module panels: editing, block table, search, run and settings.
 
-Pages live in the left sidebar; the sheet bar is a workspace switcher whose tabs can
-be added or removed at runtime (the "+" button). Each sheet is an independent panel:
-editing tools, the block table, search, pipeline run and settings.
+The module switcher is a narrow icon rail on the right edge (like VS Code's
+activity bar), so the canvas keeps its width and height. The window bottom only
+holds a slim engine bar, modelled on BallonsTranslator's bottom bar.
 """
 
 from __future__ import annotations
@@ -10,8 +10,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
-    QMenu,
-    QStackedWidget,
+    QLabel,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -25,15 +24,14 @@ from qfluentwidgets import (
     LineEdit,
     PrimaryPushButton,
     PushButton,
-    TabBar,
     TableWidget,
     TextEdit,
-    TransparentToolButton,
 )
 from qfluentwidgets import (
     FluentIcon as FIF,
 )
 
+from mangatl.domain.block import TextBlock
 from mangatl.domain.project import Page, Project
 from mangatl.gui.pages import page_status
 
@@ -45,51 +43,127 @@ SHEET_TITLES = {
     "settings": "设置",
 }
 
+SHEET_ICONS = {
+    "editor": FIF.EDIT,
+    "blocks": FIF.TILES,
+    "search": FIF.SEARCH,
+    "run": FIF.PLAY,
+    "settings": FIF.SETTING,
+}
+
 
 class EditorSheet(QWidget):
-    """Region actions and quick hints for the current page."""
+    """Block editor plus region actions for the current page."""
 
     regionAction = Signal(str)
+    blockEdited = Signal(int, str, str, str)  # id, text, translation, role
+    blockAction = Signal(str)  # reocr / translate / render / delete
 
     def __init__(self) -> None:
         super().__init__()
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(6)
 
-        info = QVBoxLayout()
-        self.page_label = BodyLabel("未加载页面")
-        info.addWidget(self.page_label)
-        self.hint = CaptionLabel("用套索或矩形框选区域，再选择右侧操作。")
-        info.addWidget(self.hint)
-        info.addStretch(1)
-        layout.addLayout(info, 2)
+        card = CardWidget()
+        card_layout = QVBoxLayout(card)
+        self.info = BodyLabel("未选中文本块")
+        self.info.setWordWrap(True)
+        card_layout.addWidget(self.info)
+        self.meta = CaptionLabel("点画布上的框选中，或用套索框选区域")
+        self.meta.setWordWrap(True)
+        card_layout.addWidget(self.meta)
+        layout.addWidget(card)
 
-        buttons = QVBoxLayout()
+        layout.addWidget(CaptionLabel("原文（可手工修正）"))
+        self.text_edit = TextEdit()
+        self.text_edit.setFixedHeight(84)
+        layout.addWidget(self.text_edit)
+
+        layout.addWidget(CaptionLabel("译文"))
+        self.translation_edit = TextEdit()
+        self.translation_edit.setFixedHeight(84)
+        layout.addWidget(self.translation_edit)
+
+        row_role = QHBoxLayout()
+        row_role.addWidget(QLabel("角色"))
+        self.role_box = ComboBox()
+        self.role_box.addItems(["dialogue", "sfx", "symbol", "texture"])
+        row_role.addWidget(self.role_box, 1)
+        layout.addLayout(row_role)
+
         row1 = QHBoxLayout()
-        self.btn_detect = PushButton(FIF.SEARCH, "区域重新检测")
-        self.btn_detect.clicked.connect(lambda: self.regionAction.emit("detect"))
-        row1.addWidget(self.btn_detect)
-        self.btn_erase = PushButton(FIF.BROOM, "区域重新擦除")
-        self.btn_erase.clicked.connect(lambda: self.regionAction.emit("erase"))
-        row1.addWidget(self.btn_erase)
-        buttons.addLayout(row1)
+        self.btn_apply = PrimaryPushButton(FIF.ACCEPT, "应用文本")
+        self.btn_apply.clicked.connect(self._emit_edit)
+        row1.addWidget(self.btn_apply)
+        self.btn_reocr = PushButton(FIF.SYNC, "重新识别")
+        self.btn_reocr.clicked.connect(lambda: self.blockAction.emit("reocr"))
+        row1.addWidget(self.btn_reocr)
+        layout.addLayout(row1)
 
         row2 = QHBoxLayout()
-        self.btn_add = PushButton(FIF.ADD, "区域添加文本块")
-        self.btn_add.clicked.connect(lambda: self.regionAction.emit("add"))
-        row2.addWidget(self.btn_add)
-        self.btn_render = PushButton(FIF.PHOTO, "重新排版本页")
-        self.btn_render.clicked.connect(lambda: self.regionAction.emit("render"))
+        self.btn_translate = PushButton(FIF.GLOBE, "翻译")
+        self.btn_translate.clicked.connect(lambda: self.blockAction.emit("translate"))
+        row2.addWidget(self.btn_translate)
+        self.btn_render = PushButton(FIF.PHOTO, "排版本页")
+        self.btn_render.clicked.connect(lambda: self.blockAction.emit("render"))
         row2.addWidget(self.btn_render)
-        buttons.addLayout(row2)
-        layout.addLayout(buttons, 3)
+        self.btn_delete = PushButton(FIF.DELETE, "删除")
+        self.btn_delete.clicked.connect(lambda: self.blockAction.emit("delete"))
+        row2.addWidget(self.btn_delete)
+        layout.addLayout(row2)
+
+        layout.addWidget(CaptionLabel("套索 / 矩形选区后："))
+        row3 = QHBoxLayout()
+        self.btn_detect = PushButton(FIF.SEARCH, "重新检测")
+        self.btn_detect.clicked.connect(lambda: self.regionAction.emit("detect"))
+        row3.addWidget(self.btn_detect)
+        self.btn_erase = PushButton(FIF.BROOM, "重新擦除")
+        self.btn_erase.clicked.connect(lambda: self.regionAction.emit("erase"))
+        row3.addWidget(self.btn_erase)
+        layout.addLayout(row3)
+        self.btn_add = PushButton(FIF.ADD, "添加文本块")
+        self.btn_add.clicked.connect(lambda: self.regionAction.emit("add"))
+        layout.addWidget(self.btn_add)
+
+        layout.addStretch(1)
+        self._block_id: int | None = None
 
     def show_page(self, page: Page | None) -> None:
         if page is None:
-            self.page_label.setText("未加载页面")
+            self.info.setText("未加载页面")
             return
-        self.page_label.setText(
+        self.info.setText(
             f"{page.name} · {len(page.blocks)} 块 · 状态 {page_status(page)}"
+        )
+
+    def show_block(self, block: TextBlock | None) -> None:
+        self._block_id = block.id if block else None
+        if block is None:
+            self.info.setText("未选中文本块")
+            self.meta.setText("点画布上的框选中，或用套索框选区域")
+            self.text_edit.setPlainText("")
+            self.translation_edit.setPlainText("")
+            return
+        self.info.setText(
+            f"#{block.id} {block.role} {'竖排' if block.vertical else '横排'}"
+        )
+        self.meta.setText(
+            f"score={block.ocr_score:.2f} · source={block.ocr_source or '-'} · "
+            f"{'气泡内' if block.in_bubble else '背景'}"
+        )
+        self.text_edit.setPlainText(block.text)
+        self.translation_edit.setPlainText(block.translation)
+        self.role_box.setCurrentText(block.role)
+
+    def _emit_edit(self) -> None:
+        if self._block_id is None:
+            return
+        self.blockEdited.emit(
+            self._block_id,
+            self.text_edit.toPlainText(),
+            self.translation_edit.toPlainText(),
+            self.role_box.currentText(),
         )
 
 
@@ -97,12 +171,12 @@ class BlocksSheet(QWidget):
     """Editable table of every block on the current page."""
 
     blockSelected = Signal(int)
-    blockEdited = Signal(int, str, str)
+    blockEdited = Signal(int, str, str, str)
 
     def __init__(self) -> None:
         super().__init__()
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setContentsMargins(10, 8, 10, 8)
 
         row = QHBoxLayout()
         row.addWidget(BodyLabel("当前页文本块"))
@@ -122,7 +196,6 @@ class BlocksSheet(QWidget):
         self.table.cellDoubleClicked.connect(self._select_row)
         self.table.itemChanged.connect(self._edited)
         layout.addWidget(self.table, 1)
-
         self._page: Page | None = None
 
     def show_page(self, page: Page | None) -> None:
@@ -175,7 +248,7 @@ class BlocksSheet(QWidget):
         block_id = self.table.item(item.row(), 0).data(Qt.ItemDataRole.UserRole)
         text = self.table.item(item.row(), 4).text()
         translation = self.table.item(item.row(), 5).text()
-        self.blockEdited.emit(int(block_id), text, translation)
+        self.blockEdited.emit(int(block_id), text, translation, "")
 
 
 class SearchSheet(QWidget):
@@ -187,13 +260,14 @@ class SearchSheet(QWidget):
         super().__init__()
         self.project = project
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setContentsMargins(10, 8, 10, 8)
 
-        row = QHBoxLayout()
         self.query = LineEdit()
         self.query.setPlaceholderText("搜索原文 / 译文…")
         self.query.textChanged.connect(self.refresh)
-        row.addWidget(self.query, 1)
+        layout.addWidget(self.query)
+
+        row = QHBoxLayout()
         self.filter_box = ComboBox()
         self.filter_box.addItems(["全部", "低分 (<0.5)", "空译文", "待校对"])
         self.filter_box.currentIndexChanged.connect(self.refresh)
@@ -238,7 +312,7 @@ class SearchSheet(QWidget):
                 str(block.id),
                 f"{block.ocr_score:.2f}",
                 block.role,
-                f"{block.text[:46]} → {block.translation[:36]}",
+                f"{block.text[:44]} → {block.translation[:34]}",
             ]
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
@@ -256,16 +330,15 @@ class SearchSheet(QWidget):
 class RunSheet(QWidget):
     """Stage switches and run buttons for the automatic pipeline."""
 
-    runRequested = Signal(object, bool)  # stages tuple, all_pages
+    runRequested = Signal(object, bool)
 
     def __init__(self) -> None:
         super().__init__()
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 8, 10, 8)
 
-        stages = QVBoxLayout()
-        stages.addWidget(BodyLabel("阶段"))
-        self.checks = {}
+        layout.addWidget(BodyLabel("阶段"))
+        self.checks: dict[str, CheckBox] = {}
         for key, label in (
             ("detect", "检测"),
             ("ocr", "OCR"),
@@ -276,24 +349,19 @@ class RunSheet(QWidget):
             box = CheckBox(label)
             box.setChecked(True)
             self.checks[key] = box
-            stages.addWidget(box)
-        stages.addStretch(1)
-        layout.addLayout(stages, 1)
+            layout.addWidget(box)
 
-        actions = QVBoxLayout()
         self.btn_page = PrimaryPushButton(FIF.PLAY, "运行当前页")
         self.btn_page.clicked.connect(lambda: self._run(False))
-        actions.addWidget(self.btn_page)
+        layout.addWidget(self.btn_page)
         self.btn_all = PushButton(FIF.SYNC, "运行全部页")
         self.btn_all.clicked.connect(lambda: self._run(True))
-        actions.addWidget(self.btn_all)
-        actions.addStretch(1)
-        layout.addLayout(actions, 1)
+        layout.addWidget(self.btn_all)
 
         self.log = TextEdit()
         self.log.setReadOnly(True)
         self.log.setPlaceholderText("运行日志…")
-        layout.addWidget(self.log, 3)
+        layout.addWidget(self.log, 1)
 
     def _run(self, all_pages: bool) -> None:
         stages = tuple(key for key, box in self.checks.items() if box.isChecked())
@@ -310,12 +378,11 @@ class SettingsSheet(QWidget):
 
     def __init__(self) -> None:
         super().__init__()
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 8, 10, 8)
 
-        card = CardWidget()
-        card_layout = QVBoxLayout(card)
-        card_layout.addWidget(BodyLabel("强调色"))
+        layout.addWidget(BodyLabel("强调色"))
+        row = QHBoxLayout()
         for colour, name in (
             ("#4f9cf9", "蓝"),
             ("#7c5cff", "紫"),
@@ -324,108 +391,27 @@ class SettingsSheet(QWidget):
         ):
             button = PushButton(name)
             button.clicked.connect(lambda _=False, c=colour: self.accentChanged.emit(c))
-            card_layout.addWidget(button)
-        card_layout.addStretch(1)
-        layout.addWidget(card, 1)
+            row.addWidget(button)
+        layout.addLayout(row)
 
-        info = CardWidget()
-        info_layout = QVBoxLayout(info)
-        info_layout.addWidget(BodyLabel("环境"))
         import os
 
-        info_layout.addWidget(
+        card = CardWidget()
+        card_layout = QVBoxLayout(card)
+        card_layout.addWidget(BodyLabel("环境"))
+        card_layout.addWidget(
             CaptionLabel(
                 "翻译 API：" + ("已配置" if os.environ.get("MANGATL_API_KEY") else "未配置")
             )
         )
-        info_layout.addWidget(CaptionLabel("OCR：manga-ocr + MIT48px 融合"))
-        info_layout.addWidget(CaptionLabel("擦除：masked（只擦文字像素）"))
-        info_layout.addStretch(1)
-        layout.addWidget(info, 2)
-
-
-class SheetHost(QWidget):
-    """Tab bar plus stack; tabs can be added or removed at runtime."""
-
-    def __init__(self, sheets: dict[str, QWidget]) -> None:
-        super().__init__()
-        self._sheets = sheets
-        self._shown: list[str] = []
-
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
-
-        bar_row = QHBoxLayout()
-        bar_row.setContentsMargins(6, 2, 6, 0)
-        self.tabbar = TabBar()
-        self.tabbar.currentChanged.connect(self._switch)
-        bar_row.addWidget(self.tabbar, 1)
-
-        self.add_button = TransparentToolButton(FIF.ADD)
-        self.add_button.setToolTip("添加模块页签")
-        self.add_button.clicked.connect(self._show_add_menu)
-        bar_row.addWidget(self.add_button)
-        outer.addLayout(bar_row)
-
-        self.stack = QStackedWidget()
-        outer.addWidget(self.stack, 1)
-
-        for key in sheets:
-            self.add_sheet(key)
-
-    # -- sheet management -------------------------------------------------
-    def add_sheet(self, key: str) -> None:
-        if key in self._shown or key not in self._sheets:
-            return
-        self._shown.append(key)
-        self.stack.addWidget(self._sheets[key])
-        self.tabbar.addTab(key, SHEET_TITLES.get(key, key))
-        self.tabbar.setCurrentIndex(len(self._shown) - 1)
-
-    def remove_sheet(self, key: str) -> None:
-        if key not in self._shown:
-            return
-        index = self._shown.index(key)
-        self._shown.pop(index)
-        widget = self._sheets[key]
-        self.stack.removeWidget(widget)
-        self.tabbar.removeTab(index)
-        if self._shown:
-            self.tabbar.setCurrentIndex(min(index, len(self._shown) - 1))
-
-    def show_sheet(self, key: str) -> None:
-        if key not in self._shown:
-            self.add_sheet(key)
-        self.tabbar.setCurrentIndex(self._shown.index(key))
-
-    @property
-    def current_key(self) -> str | None:
-        index = self.tabbar.currentIndex()
-        return self._shown[index] if 0 <= index < len(self._shown) else None
-
-    def sheet(self, key: str) -> QWidget | None:
-        return self._sheets.get(key)
-
-    # -- internals --------------------------------------------------------
-    def _switch(self, index: int) -> None:
-        if 0 <= index < self._shown:
-            self.stack.setCurrentWidget(self._sheets[self._shown[index]])
-
-    def _show_add_menu(self) -> None:
-        menu = QMenu(self)
-        for key in self._sheets:
-            action = menu.addAction(SHEET_TITLES.get(key, key))
-            action.setCheckable(True)
-            action.setChecked(key in self._shown)
-            action.triggered.connect(
-                lambda checked, k=key: self.add_sheet(k) if checked else self.remove_sheet(k)
-            )
-        menu.exec(self.add_button.mapToGlobal(self.add_button.rect().bottomLeft()))
+        card_layout.addWidget(CaptionLabel("OCR：manga-ocr + MIT48px 融合"))
+        card_layout.addWidget(CaptionLabel("擦除：masked（只擦文字像素）"))
+        layout.addWidget(card)
+        layout.addStretch(1)
 
 
 def build_sheets(project: Project) -> dict[str, QWidget]:
-    """Create the standard sheet set."""
+    """Create the standard module panels."""
     return {
         "editor": EditorSheet(),
         "blocks": BlocksSheet(),

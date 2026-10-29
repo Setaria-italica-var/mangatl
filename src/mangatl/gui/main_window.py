@@ -1,4 +1,4 @@
-"""Fluent main window: page sidebar, canvas, inspector and module sheets."""
+"""Fluent editor: page sidebar, canvas, right module rail and a slim engine bar."""
 
 from __future__ import annotations
 
@@ -7,29 +7,26 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QComboBox,
     QDockWidget,
     QHBoxLayout,
     QInputDialog,
+    QLabel,
     QMainWindow,
     QMessageBox,
+    QSlider,
+    QStackedWidget,
     QToolBar,
     QVBoxLayout,
     QWidget,
 )
 from qfluentwidgets import (
-    BodyLabel,
-    CaptionLabel,
-    CardWidget,
-    ComboBox,
-    InfoBar,
-    InfoBarPosition,
-    PrimaryPushButton,
-    PushButton,
-    TextEdit,
-    TransparentToolButton,
+    FluentIcon as FIF,
 )
 from qfluentwidgets import (
-    FluentIcon as FIF,
+    InfoBar,
+    InfoBarPosition,
+    TransparentToolButton,
 )
 
 from mangatl.domain.project import Project
@@ -37,7 +34,14 @@ from mangatl.gui.canvas import PageCanvas
 from mangatl.gui.editor import PageEditor
 from mangatl.gui.fluent import set_accent
 from mangatl.gui.pages import ThumbnailList
-from mangatl.gui.sheets import build_sheets
+from mangatl.gui.sheets import SHEET_ICONS, SHEET_TITLES, build_sheets
+
+ENGINE_OPTIONS = {
+    "detector": ("ctd",),
+    "ocr": ("mit_manga", "manga_ocr", "mit48px_ctc", "rapidocr"),
+    "inpainter": ("masked", "lama"),
+    "translator": ("openai", "echo"),
+}
 
 
 class MainWindow(QMainWindow):
@@ -46,7 +50,7 @@ class MainWindow(QMainWindow):
     def __init__(self, project_dir: Path) -> None:
         super().__init__()
         self.setWindowTitle(f"mangatl — {project_dir.name}")
-        self.resize(1560, 980)
+        self.resize(1560, 960)
 
         self.project = Project.open(project_dir)
         if not len(self.project):
@@ -60,8 +64,8 @@ class MainWindow(QMainWindow):
         self._build_toolbar()
         self._build_central()
         self._build_sidebar()
-        self._build_inspector()
-        self._build_sheets()
+        self._build_module_panel()
+        self._build_engine_bar()
         self.statusBar().showMessage("就绪")
 
         self.refresh_pages()
@@ -70,7 +74,7 @@ class MainWindow(QMainWindow):
         else:
             self.statusBar().showMessage("项目里没有图片：请把页面放进该目录")
 
-    # -- construction -----------------------------------------------------
+    # -- top toolbar ------------------------------------------------------
     def _tool_button(self, icon, tooltip: str, slot, checkable: bool = False):
         button = TransparentToolButton(icon)
         button.setToolTip(tooltip)
@@ -97,12 +101,12 @@ class MainWindow(QMainWindow):
             bar.addWidget(button)
 
         bar.addSeparator()
-        bar.addWidget(self._tool_button(FIF.FIT_PAGE, "适应窗口", lambda: self.canvas.fit()))
+        bar.addWidget(
+            self._tool_button(FIF.FIT_PAGE, "适应窗口", lambda: self.canvas.fit())
+        )
         bar.addWidget(
             self._tool_button(FIF.ROTATE, "旋转 90°", lambda: self.canvas.rotate_view())
         )
-
-        bar.addSeparator()
         bar.addWidget(
             self._tool_button(
                 FIF.LEFT_ARROW, "上一页", lambda: self.load_page(self.page_index - 1)
@@ -113,9 +117,8 @@ class MainWindow(QMainWindow):
                 FIF.RIGHT_ARROW, "下一页", lambda: self.load_page(self.page_index + 1)
             )
         )
-
         bar.addSeparator()
-        bar.addWidget(self._tool_button(FIF.SEARCH, "全局搜索", self.open_search))
+        bar.addWidget(self._tool_button(FIF.SEARCH, "搜索", self.show_search))
         bar.addWidget(
             self._tool_button(
                 FIF.PLAY, "运行本页", lambda: self.run_page(self.page_index)
@@ -124,6 +127,7 @@ class MainWindow(QMainWindow):
         bar.addWidget(self._tool_button(FIF.SAVE, "保存", self.save))
         bar.addWidget(self._tool_button(FIF.RETURN, "撤销", self.undo))
 
+    # -- canvas / sidebar -------------------------------------------------
     def _build_central(self) -> None:
         self.canvas = PageCanvas(self)
         self.canvas.blockClicked.connect(self.select_block)
@@ -144,87 +148,99 @@ class MainWindow(QMainWindow):
         dock.setMinimumWidth(200)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, dock)
 
-    def _build_inspector(self) -> None:
-        dock = QDockWidget("文本块", self)
-        dock.setMinimumWidth(340)
-        panel = QWidget()
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(8, 8, 8, 8)
-
-        card = CardWidget()
-        card_layout = QVBoxLayout(card)
-        self.info = BodyLabel("未选中文本块")
-        self.info.setWordWrap(True)
-        card_layout.addWidget(self.info)
-        self.meta = CaptionLabel("")
-        card_layout.addWidget(self.meta)
-        layout.addWidget(card)
-
-        layout.addWidget(CaptionLabel("原文（可手工修正）"))
-        self.text_edit = TextEdit()
-        self.text_edit.setFixedHeight(92)
-        layout.addWidget(self.text_edit)
-
-        layout.addWidget(CaptionLabel("译文"))
-        self.translation_edit = TextEdit()
-        self.translation_edit.setFixedHeight(92)
-        layout.addWidget(self.translation_edit)
-
-        layout.addWidget(CaptionLabel("角色"))
-        self.role_box = ComboBox()
-        self.role_box.addItems(["dialogue", "sfx", "symbol", "texture"])
-        layout.addWidget(self.role_box)
-
-        row = QHBoxLayout()
-        self.btn_apply = PrimaryPushButton(FIF.ACCEPT, "应用文本")
-        self.btn_apply.clicked.connect(self.apply_text)
-        row.addWidget(self.btn_apply)
-        self.btn_reocr = PushButton(FIF.SYNC, "重新识别")
-        self.btn_reocr.clicked.connect(self.reocr_block)
-        row.addWidget(self.btn_reocr)
-        layout.addLayout(row)
-
-        row2 = QHBoxLayout()
-        self.btn_translate = PushButton(FIF.GLOBE, "翻译此块")
-        self.btn_translate.clicked.connect(self.translate_block)
-        row2.addWidget(self.btn_translate)
-        self.btn_render = PushButton(FIF.PHOTO, "重新排版")
-        self.btn_render.clicked.connect(self.rerender)
-        row2.addWidget(self.btn_render)
-        layout.addLayout(row2)
-
-        row3 = QHBoxLayout()
-        self.btn_delete = PushButton(FIF.DELETE, "删除")
-        self.btn_delete.clicked.connect(self.delete_block)
-        row3.addWidget(self.btn_delete)
-        self.btn_open = PushButton(FIF.FOLDER, "打开结果图")
-        self.btn_open.clicked.connect(self.open_result)
-        row3.addWidget(self.btn_open)
-        layout.addLayout(row3)
-
-        layout.addStretch(1)
-        dock.setWidget(panel)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
-
-    def _build_sheets(self) -> None:
-        from mangatl.gui.sheets import SheetHost
-
+    # -- right module rail ------------------------------------------------
+    def _build_module_panel(self) -> None:
         self.sheets = build_sheets(self.project)
-        self.sheet_host = SheetHost(self.sheets)
         dock = QDockWidget("模块", self)
         dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
-        dock.setWidget(self.sheet_host)
-        dock.setMinimumHeight(170)
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, dock)
-        self.sheet_dock = dock
-        self.resizeDocks([dock], [230], Qt.Orientation.Vertical)
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        self.sheets["editor"].regionAction.connect(self.on_sheet_region)
+        rail = QWidget()
+        rail.setFixedWidth(46)
+        rail_layout = QVBoxLayout(rail)
+        rail_layout.setContentsMargins(4, 8, 4, 8)
+        rail_layout.setSpacing(4)
+        self.rail_buttons: dict[str, TransparentToolButton] = {}
+        for key in SHEET_TITLES:
+            button = TransparentToolButton(SHEET_ICONS[key])
+            button.setToolTip(SHEET_TITLES[key])
+            button.setCheckable(True)
+            button.clicked.connect(lambda _=False, k=key: self.show_module(k))
+            self.rail_buttons[key] = button
+            rail_layout.addWidget(button)
+        rail_layout.addStretch(1)
+        layout.addWidget(rail)
+
+        self.stack = QStackedWidget()
+        self._sheet_keys = list(self.sheets)
+        for key in self._sheet_keys:
+            self.stack.addWidget(self.sheets[key])
+        layout.addWidget(self.stack, 1)
+
+        dock.setWidget(container)
+        dock.setMinimumWidth(360)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+        self.module_dock = dock
+
+        editor = self.sheets["editor"]
+        editor.regionAction.connect(self.on_sheet_region)
+        editor.blockEdited.connect(self.on_block_edited)
+        editor.blockAction.connect(self.on_block_action)
         self.sheets["blocks"].blockSelected.connect(self.select_block)
-        self.sheets["blocks"].blockEdited.connect(self.on_table_edit)
+        self.sheets["blocks"].blockEdited.connect(self.on_block_edited)
         self.sheets["search"].jumpRequested.connect(self._jump_to_block)
         self.sheets["run"].runRequested.connect(self.on_run_requested)
         self.sheets["settings"].accentChanged.connect(self.on_accent)
+
+        self.rail_current = "editor"
+        self.rail_buttons["editor"].setChecked(True)
+        self.stack.setCurrentWidget(self.sheets["editor"])
+
+    def show_module(self, key: str) -> None:
+        """Switch the right panel to a module."""
+        if key not in self.sheets:
+            return
+        self.rail_current = key
+        for name, button in self.rail_buttons.items():
+            button.setChecked(name == key)
+        self.stack.setCurrentWidget(self.sheets[key])
+        self.module_dock.show()
+
+    def show_search(self) -> None:
+        self.show_module("search")
+        self.sheets["search"].refresh()
+
+    # -- slim bottom engine bar -------------------------------------------
+    def _build_engine_bar(self) -> None:
+        bar = QToolBar("引擎", self)
+        bar.setMovable(False)
+        self.addToolBar(Qt.ToolBarArea.BottomToolBarArea, bar)
+
+        self.engine_boxes: dict[str, QComboBox] = {}
+        labels = {
+            "detector": "检测",
+            "ocr": "OCR",
+            "inpainter": "擦除",
+            "translator": "翻译",
+        }
+        for key, options in ENGINE_OPTIONS.items():
+            bar.addWidget(QLabel(labels[key]))
+            box = QComboBox()
+            box.addItems(options)
+            self.engine_boxes[key] = box
+            bar.addWidget(box)
+            bar.addWidget(QLabel(" "))
+
+        bar.addWidget(QLabel("图层透明度"))
+        self.opacity_slider = QSlider(Qt.Orientation.Horizontal)
+        self.opacity_slider.setRange(0, 100)
+        self.opacity_slider.setValue(100)
+        self.opacity_slider.setFixedWidth(140)
+        self.opacity_slider.valueChanged.connect(self.canvas.set_overlay_opacity)
+        bar.addWidget(self.opacity_slider)
 
     # -- pages ------------------------------------------------------------
     def refresh_pages(self) -> None:
@@ -254,6 +270,7 @@ class MainWindow(QMainWindow):
         self._undo.clear()
         self.canvas.show_image(self.editor.image_path)
         self.canvas.set_blocks(page.blocks)
+        self.sheets["editor"].show_block(None)
         self._refresh_sheets()
         self.statusBar().showMessage(f"已加载 {page.name}")
 
@@ -308,13 +325,16 @@ class MainWindow(QMainWindow):
         self.refresh_pages()
         self.statusBar().showMessage(f"{page.name} 已重置")
 
+    def _engines(self) -> dict[str, str]:
+        return {key: box.currentText() for key, box in self.engine_boxes.items()}
+
     def run_page(self, index: int) -> None:
         from mangatl.core.config import RunConfig
         from mangatl.gui.pipeline_bridge import build_default_service
 
         page = list(self.project)[index]
         try:
-            service = build_default_service(self.project)
+            service = build_default_service(self.project, **self._engines())
             summary = service.run(RunConfig(), only={page.name})
         except Exception as exc:  # noqa: BLE001 - surface the failure in the GUI
             QMessageBox.warning(self, "运行失败", str(exc))
@@ -332,13 +352,10 @@ class MainWindow(QMainWindow):
         self.project.save()
         self.statusBar().showMessage("已保存 project.json")
 
-    def open_search(self) -> None:
-        self.sheet_host.show_sheet("search")
-        self.sheet_dock.show()
-
     def _jump_to_block(self, page_index: int, block_id: int) -> None:
         self.load_page(page_index)
         self.select_block(block_id)
+        self.show_module("editor")
 
     # -- selection --------------------------------------------------------
     def select_block(self, block_id: int) -> None:
@@ -348,16 +365,7 @@ class MainWindow(QMainWindow):
         if block is None:
             return
         self.selected_id = block_id
-        self.text_edit.setPlainText(block.text)
-        self.translation_edit.setPlainText(block.translation)
-        self.role_box.setCurrentText(block.role)
-        self.info.setText(
-            f"#{block.id} {block.role} {'竖排' if block.vertical else '横排'}"
-        )
-        self.meta.setText(
-            f"score={block.ocr_score:.2f} · source={block.ocr_source or '-'} · "
-            f"{'气泡内' if block.in_bubble else '背景'}"
-        )
+        self.sheets["editor"].show_block(block)
         self.canvas.set_blocks(self.editor.page.blocks, [block_id])
 
     def _selected(self):
@@ -386,33 +394,34 @@ class MainWindow(QMainWindow):
         self.refresh_pages()
         self.statusBar().showMessage("已撤销")
 
-    def apply_text(self) -> None:
-        block = self._selected()
-        if block is None or self.editor is None:
+    def on_block_edited(
+        self, block_id: int, text: str, translation: str, role: str
+    ) -> None:
+        if self.editor is None:
             return
-        self._snapshot()
-        self.editor.set_text(block, self.text_edit.toPlainText())
-        self.editor.set_translation(block, self.translation_edit.toPlainText())
-        block.role = self.role_box.currentText()
-        self.editor.project.save()
-        self.canvas.set_blocks(self.editor.page.blocks, [block.id])
-        self.refresh_pages()
-        self.statusBar().showMessage(f"已更新 #{block.id}")
-
-    def on_table_edit(self, block_id: int, text: str, translation: str) -> None:
-        block = (
-            next((b for b in self.editor.page.blocks if b.id == block_id), None)
-            if self.editor
-            else None
-        )
+        block = next((b for b in self.editor.page.blocks if b.id == block_id), None)
         if block is None:
             return
-        block.text = text
-        block.translation = translation
+        self._snapshot()
+        block.text = text.strip()
+        block.translation = translation.strip()
+        if role:
+            block.role = role
         block.ocr_source = "manual"
         block.needs_review = False
         self.editor.project.save()
-        self.statusBar().showMessage(f"表格已更新 #{block_id}")
+        self.refresh_pages()
+        self.statusBar().showMessage(f"已更新 #{block_id}")
+
+    def on_block_action(self, action: str) -> None:
+        if action == "reocr":
+            self.reocr_block()
+        elif action == "translate":
+            self.translate_block()
+        elif action == "render":
+            self.rerender()
+        elif action == "delete":
+            self.delete_block()
 
     def reocr_block(self) -> None:
         block = self._selected()
@@ -423,7 +432,7 @@ class MainWindow(QMainWindow):
 
         adapter = MangaOcrAdapter()
         probe = adapter.recognize(self.editor.image_path, [block])[0]
-        self.text_edit.setPlainText(probe.text)
+        self.sheets["editor"].text_edit.setPlainText(probe.text)
         self.editor.project.save()
         self.statusBar().showMessage(f"重新识别 #{probe.id}: {probe.text[:20]}")
 
@@ -445,7 +454,7 @@ class MainWindow(QMainWindow):
             )
             return
         translator.translate([block], {"target_lang": "简体中文"})
-        self.translation_edit.setPlainText(block.translation)
+        self.sheets["editor"].show_block(block)
         self.editor.project.save()
         self.refresh_pages()
 
@@ -457,6 +466,7 @@ class MainWindow(QMainWindow):
         self.editor.remove_blocks([block])
         self.selected_id = None
         self.canvas.set_blocks(self.editor.page.blocks)
+        self.sheets["editor"].show_block(None)
         self.refresh_pages()
         self.statusBar().showMessage("已删除")
 
@@ -469,24 +479,19 @@ class MainWindow(QMainWindow):
         self.refresh_pages()
         self.statusBar().showMessage(f"已排版 -> {path}")
 
-    def open_result(self) -> None:
-        if self.editor is None:
-            return
-        path = self.editor.result_path
-        if path.is_file():
-            os.startfile(path)  # noqa: S606 - open a local file
-
     # -- region actions ---------------------------------------------------
     def on_lasso(self, points: list) -> None:
         self.region = points
+        self.show_module("editor")
         self.statusBar().showMessage(
-            f"已选择区域（{len(points)} 点），选“编辑”页签里的操作"
+            f"已选择区域（{len(points)} 点），用右侧“重新检测/擦除/添加”"
         )
 
     def on_rect(self, box: tuple) -> None:
         x1, y1, x2, y2 = box
         self.region = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
-        self.statusBar().showMessage("已选择矩形区域，选“编辑”页签里的操作")
+        self.show_module("editor")
+        self.statusBar().showMessage("已选择矩形区域，用右侧“重新检测/擦除/添加”")
 
     def on_sheet_region(self, action: str) -> None:
         if action == "detect":
@@ -495,8 +500,6 @@ class MainWindow(QMainWindow):
             self.erase_region()
         elif action == "add":
             self.add_region_block()
-        elif action == "render":
-            self.rerender()
 
     def _require_region(self) -> bool:
         if self.region is None:
@@ -533,7 +536,7 @@ class MainWindow(QMainWindow):
         block = self.editor.add_block(box, text="", translation="")
         self.canvas.set_blocks(self.editor.page.blocks, [block.id])
         self.select_block(block.id)
-        self.text_edit.setFocus()
+        self.sheets["editor"].text_edit.setFocus()
         self.statusBar().showMessage("已添加文本块，输入内容后点“应用文本”")
 
     # -- run / theme ------------------------------------------------------
@@ -545,7 +548,7 @@ class MainWindow(QMainWindow):
             InfoBar.warning("未选择阶段", "至少勾选一个阶段", parent=self)
             return
         try:
-            service = build_default_service(self.project)
+            service = build_default_service(self.project, **self._engines())
             only = None if all_pages else {list(self.project)[self.page_index].name}
             summary = service.run(RunConfig(stages=tuple(stages)), only=only)
         except Exception as exc:  # noqa: BLE001 - show failures in the log
