@@ -160,6 +160,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "heuristic falls back to the pixel test, off erases every block",
     )
     run.add_argument(
+        "--two-pass-bubbles",
+        choices=("on", "off"),
+        default="on",
+        help="re-check pages where plausible dialogue has no bubble (on by default)",
+    )
+    run.add_argument(
         "--bubble-conf",
         type=float,
         default=0.3,
@@ -574,6 +580,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         verify_ocr=args.verify_ocr != "off",
         bubble_model=args.bubble_model,
         bubble_confidence=args.bubble_conf,
+        two_pass_bubbles=args.two_pass_bubbles == "on",
         page_scopes=tuple(args.page_scope),
         force_bubble=tuple(args.force_bubble),
         keep_blocks=tuple(filter(None, (s.strip() for s in args.keep_blocks.split(",")))),
