@@ -217,7 +217,7 @@ class PipelineService:
         suspects = [
             block
             for block in page.blocks
-            if block.ocr_candidates and block.ocr_score < 0.7
+            if block.ocr_candidates and block.ocr_score < 0.75
         ]
         if not suspects:
             return
