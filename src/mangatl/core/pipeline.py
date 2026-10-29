@@ -127,6 +127,7 @@ class PipelineService:
                     page, image_path, config.erase_scope, self.bubble_detector
                 )
                 _apply_forced_bubbles(page, config)
+                _split_straddling_blocks(page)
                 if config.merge_fragments:
                     page.blocks = merge_blocks(page.blocks)
             elif stage == "ocr":
@@ -548,6 +549,56 @@ def is_bubble(bbox: tuple[int, int, int, int], regions, page_size: tuple[int, in
     return rx1 <= x1 + 2 and ry1 <= y1 + 2 and rx2 >= x2 - 2 and ry2 >= y2 - 2
 
 
+def _intersect(
+    first: tuple[int, int, int, int], second: tuple[int, int, int, int]
+) -> tuple[int, int, int, int] | None:
+    x1, y1 = max(first[0], second[0]), max(first[1], second[1])
+    x2, y2 = min(first[2], second[2]), min(first[3], second[3])
+    if x2 - x1 < 4 or y2 - y1 < 4:
+        return None
+    return (x1, y1, x2, y2)
+
+
+def _split_straddling_blocks(page: Page) -> None:
+    """Split a block that spans two nested bubbles into one block per bubble.
+
+    The detector sometimes returns a single box over an inner and an outer
+    bubble; OCR then reads both texts into one block and the translation lands in
+    whichever bubble is drawn last. Splitting keeps each bubble's text separate.
+    """
+    result: list[TextBlock] = []
+    for block in page.blocks:
+        boxes = tuple(getattr(block, "bubble_boxes", ()))
+        if len(boxes) >= 2:
+            area = max(1, (block.bbox[2] - block.bbox[0]) * (block.bbox[3] - block.bbox[1]))
+            parts = []
+            for bubble in boxes:
+                clipped = _intersect(block.bbox, bubble)
+                if clipped is None:
+                    continue
+                if (clipped[2] - clipped[0]) * (clipped[3] - clipped[1]) < 0.2 * area:
+                    continue
+                parts.append((bubble, clipped))
+            if len(parts) >= 2:
+                for bubble, clipped in parts:
+                    result.append(
+                        TextBlock(
+                            id=0,
+                            bbox=clipped,
+                            text=block.text,
+                            vertical=block.vertical,
+                            in_bubble=True,
+                            bubble_bbox=bubble,
+                            bubble_boxes=(bubble,),
+                        )
+                    )
+                continue
+        result.append(block)
+    for index, item in enumerate(result):
+        item.id = index
+    page.blocks = result
+
+
 def _apply_forced_bubbles(page: Page, config: RunConfig) -> None:
     """Honour ``--force-bubble page:id`` after the model had its say."""
     forced = {item.strip() for item in config.force_bubble}
@@ -608,7 +659,15 @@ def annotate_with_model(page: Page, image_path: Path, detector) -> bool:
             if page_area is not None and area > 0.4 * page_area:
                 continue
             usable.append(bubble)
+        block.bubble_boxes = tuple(
+            bubble.bbox for bubble in usable if covered(block.bbox, [bubble])
+        )
         block.in_bubble = covered(block.bbox, usable)
+        if block.in_bubble and len(block.bubble_boxes) >= 2:
+            block.bubble_bbox = max(
+                block.bubble_boxes,
+                key=lambda box: (box[2] - box[0]) * (box[3] - box[1]),
+            )
         if block.in_bubble:
             best = max(
                 usable, key=lambda bubble: coverage(block.bbox, [bubble]), default=None

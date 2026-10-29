@@ -33,6 +33,8 @@ class TextBlock:
     in_bubble: bool = True
     bubble_bbox: tuple[int, int, int, int] | None = None
     erase_bbox: tuple[int, int, int, int] | None = None
+    # Transient: every detected bubble that covers this block.
+    bubble_boxes: tuple[tuple[int, int, int, int], ...] = ()
     ocr_score: float = 0.0
     ocr_source: str = ""
     # Transient: every engine's reading for this block, used by the LLM judge.

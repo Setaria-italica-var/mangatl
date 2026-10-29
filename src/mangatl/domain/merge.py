@@ -65,6 +65,11 @@ def _same_bubble(a: TextBlock, b: TextBlock) -> bool | None:
     A block without a bubble is background text (a sound effect on the artwork);
     merging it into a bubble would move its translation into someone else's line.
     """
+    if a.bubble_boxes or b.bubble_boxes:
+        # Nested bubbles: an outer bubble may cover both blocks while only one of
+        # them also sits in the inner bubble. Comparing the full covering set keeps
+        # the two bubbles' text from being merged.
+        return bool(a.bubble_boxes) and sorted(a.bubble_boxes) == sorted(b.bubble_boxes)
     if a.bubble_bbox is None and b.bubble_bbox is None:
         return None
     if a.bubble_bbox is None or b.bubble_bbox is None:
