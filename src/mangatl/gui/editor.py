@@ -91,6 +91,11 @@ class PageEditor:
         )
         self.page.blocks.append(block)
         self._after_edit()
+        # Manual blocks are dialogue by definition: the role classifier only sees
+        # ink coverage and would otherwise mark a hand-drawn box as "texture", in
+        # which case the renderer skips it and the translation never appears.
+        block.role = BlockRole.DIALOGUE.value
+        self.project.save()
         return block
 
     def remove_blocks(self, blocks: Sequence[TextBlock]) -> None:

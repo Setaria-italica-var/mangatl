@@ -70,7 +70,7 @@ class PageRenderer:
 
         for block in blocks:
             text = block.translation.strip()
-            if not text or block.role == "texture":
+            if not text or (block.role == "texture" and block.ocr_source != "manual"):
                 continue
             style = estimate_style(
                 style_pixels, None, block.bbox, vertical=block.vertical
