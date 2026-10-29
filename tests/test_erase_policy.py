@@ -28,7 +28,9 @@ def test_texture_is_kept() -> None:
 
 
 def test_symbol_is_erased() -> None:
-    assert should_erase(make_block(role="symbol", mask_coverage=0.4), RunConfig())
+    item = make_block(role="symbol", mask_coverage=0.4, text="！！", translation="！！")
+
+    assert should_erase(item, RunConfig())
 
 
 def test_sfx_follows_policy() -> None:
