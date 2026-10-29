@@ -353,7 +353,9 @@ def _force_offline() -> None:
     os.environ.setdefault("HF_HOME", str(Path("data/hf").resolve()))
 
 
-LAMA_URL = "https://hf-mirror.com/Carve/LaMa-ONNX/resolve/main/lama.onnx"
+# The fp32 export is the recommended graph (opset 17); the dynamo export is slow
+# and its DFT nodes break in onnxruntime.
+LAMA_URL = "https://hf-mirror.com/Carve/LaMa-ONNX/resolve/main/lama_fp32.onnx"
 LAMA_MIN_BYTES = 150_000_000
 LAMA_EXPECTED_BYTES = 207_500_000
 

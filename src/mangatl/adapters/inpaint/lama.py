@@ -97,21 +97,102 @@ class LamaInpainter:
         return destination
 
     # -- internals --------------------------------------------------------
+    def _input_size(self) -> int | None:
+        """Fixed square input size of the graph, or ``None`` when dynamic."""
+        shape = self._get_session().get_inputs()[0].shape
+        if len(shape) == 4 and all(isinstance(dim, int) and dim > 0 for dim in shape[2:]):
+            return int(shape[2])
+        return None
+
     def _run(self, pixels: np.ndarray, erase: np.ndarray) -> np.ndarray:
         session = self._get_session()
+        size = self._input_size()
+        if size is None:
+            return self._run_dynamic(session, pixels, erase)
+        return self._run_tiled(session, pixels, erase, size)
+
+    def _run_dynamic(self, session, pixels: np.ndarray, erase: np.ndarray) -> np.ndarray:
         height, width = pixels.shape[:2]
         pad_h = (-height) % self.multiple
         pad_w = (-width) % self.multiple
         image = np.pad(pixels, ((0, pad_h), (0, pad_w), (0, 0)), mode="symmetric")
-        hole = np.pad(erase, ((0, pad_h), (0, pad_w)), mode="constant", constant_values=False)
-
+        hole = np.pad(
+            erase, ((0, pad_h), (0, pad_w)), mode="constant", constant_values=False
+        )
         tensor = image.transpose(2, 0, 1)[None].astype(np.float32) / 255.0
         mask_tensor = hole[None, None].astype(np.float32)
         outputs = session.run(
             None,
-            {session.get_inputs()[0].name: tensor, session.get_inputs()[1].name: mask_tensor},
+            {
+                session.get_inputs()[0].name: tensor,
+                session.get_inputs()[1].name: mask_tensor,
+            },
         )
-        result = np.clip(outputs[0][0], 0, 1)
+        return self._to_pixels(outputs[0], height, width)
+
+    def _run_tiled(
+        self, session, pixels: np.ndarray, erase: np.ndarray, size: int
+    ) -> np.ndarray:
+        """Run a fixed-size graph tile by tile around the erased area."""
+        height, width = pixels.shape[:2]
+        rows = np.where(erase.any(axis=1))[0]
+        cols = np.where(erase.any(axis=0))[0]
+        if rows.size == 0 or cols.size == 0:
+            return pixels.copy()
+        top, bottom = int(rows[0]), int(rows[-1]) + 1
+        left, right = int(cols[0]), int(cols[-1]) + 1
+        stride = max(1, size // 2)
+        result = pixels.copy()
+
+        top = max(0, top - size // 4)
+        left = max(0, left - size // 4)
+        bottom = min(height, bottom + size // 4)
+        right = min(width, right + size // 4)
+        for y0 in range(top, max(top + 1, bottom), stride):
+            for x0 in range(left, max(left + 1, right), stride):
+                tile_image = pixels[y0 : y0 + size, x0 : x0 + size]
+                tile_mask = erase[y0 : y0 + size, x0 : x0 + size]
+                tile_image, tile_mask = self._pad_tile(tile_image, tile_mask, size)
+                if not tile_mask.any():
+                    continue
+                tensor = tile_image.transpose(2, 0, 1)[None].astype(np.float32) / 255.0
+                mask_tensor = tile_mask[None, None].astype(np.float32)
+                outputs = session.run(
+                    None,
+                    {
+                        session.get_inputs()[0].name: tensor,
+                        session.get_inputs()[1].name: mask_tensor,
+                    },
+                )
+                filled = self._to_pixels(outputs[0], size, size)
+                h = min(size, height - y0)
+                w = min(size, width - x0)
+                patch = filled[:h, :w]
+                mask = tile_mask[:h, :w]
+                result[y0 : y0 + h, x0 : x0 + w][mask] = patch[mask]
+        return result
+
+    @staticmethod
+    def _pad_tile(image: np.ndarray, mask: np.ndarray, size: int):
+        pad_h = size - image.shape[0]
+        pad_w = size - image.shape[1]
+        if pad_h or pad_w:
+            image = np.pad(
+                image, ((0, max(0, pad_h)), (0, max(0, pad_w)), (0, 0)), mode="edge"
+            )
+            mask = np.pad(
+                mask, ((0, max(0, pad_h)), (0, max(0, pad_w))), mode="constant"
+            )
+        return image[:size, :size], mask[:size, :size]
+
+    @staticmethod
+    def _to_pixels(output: np.ndarray, height: int, width: int) -> np.ndarray:
+        array = output[0]
+        # Some exports emit 0..255 instead of 0..1; detect it instead of clipping
+        # the image into black-and-white poster.
+        if float(array.max()) > 1.5:
+            array = array / 255.0
+        result = np.clip(array, 0, 1)
         if result.shape[0] == 3:
             result = result.transpose(1, 2, 0)
         result = (result * 255.0).round().astype(np.uint8)
@@ -121,7 +202,15 @@ class LamaInpainter:
         if self._session is None:
             import onnxruntime as ort
 
+            options = ort.SessionOptions()
+            # LaMa uses FFC blocks whose DFT nodes fail shape inference when ORT
+            # fuses them; disabling optimisation keeps the graph usable.
+            options.graph_optimization_level = (
+                ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+            )
             self._session = ort.InferenceSession(
-                str(self.model_path), providers=["CPUExecutionProvider"]
+                str(self.model_path),
+                options,
+                providers=["CPUExecutionProvider"],
             )
         return self._session
