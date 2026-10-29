@@ -36,6 +36,7 @@ pytest-of-*/
 wheels/
 tmpw/
 *.log
+inspect.txt
 
 # 编辑器 / 系统
 .vscode/
