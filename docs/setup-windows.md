@@ -208,3 +208,16 @@ python -m pip download -e ".[dev]" -d wheels --index-url https://pypi.org/simple
 ```bat
 python -m pip install --no-index --find-links wheels -e ".[dev]"
 ```
+
+## 离线运行（权重已缓存）
+
+网络不通时，让 HuggingFace 库跳过联网校验：
+
+```bat
+set HF_HOME=%CD%\data\hf
+set HF_HUB_OFFLINE=1
+set TRANSFORMERS_OFFLINE=1
+python -m mangatl run samples\vol1 --offline ...
+```
+
+`--offline` 等价于上面两个环境变量，并在未设置 `HF_HOME` 时指向 `data/hf`。

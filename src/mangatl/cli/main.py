@@ -111,6 +111,11 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--source-lang", default="ja")
     run.add_argument("--target-lang", default="zh-CN")
     run.add_argument(
+        "--offline",
+        action="store_true",
+        help="never touch the network for models (uses the local HF cache)",
+    )
+    run.add_argument(
         "--bubbles",
         choices=("auto", "model", "heuristic", "off"),
         default="auto",
@@ -229,6 +234,17 @@ def _run_translate_test(text: str, target: str) -> int:
         return 1
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
+
+
+def _force_offline() -> None:
+    """Make huggingface/transformers use the cache and skip network probes.
+
+    The variables must be set before those libraries are imported, which is why
+    this runs at the very start of ``main``.
+    """
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"
+    os.environ.setdefault("HF_HOME", str(Path("data/hf").resolve()))
 
 
 def _run_fetch_models(args) -> int:
