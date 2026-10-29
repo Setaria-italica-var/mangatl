@@ -26,7 +26,7 @@ from mangatl.render import fonts
 from mangatl.render.layout import FitResult, fit_horizontal, fit_vertical
 from mangatl.render.style import TextStyle, estimate_style
 
-ROTATE_IN_VERTICAL = set("ー〜~…‥—―「」『』（）()［］[]")
+ROTATE_IN_VERTICAL = set("ー〜~…‥—―─–‐‑「」『』（）()［］[]")
 VERTICAL_OFFSET = 1.06
 
 

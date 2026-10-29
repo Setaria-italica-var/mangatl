@@ -185,6 +185,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="per-page erase scope, e.g. --page-scope 009.jpg=all",
     )
     run.add_argument(
+        "--force-bubble",
+        action="append",
+        default=[],
+        metavar="PAGE:ID",
+        help="treat a block as bubble content even when the model missed its bubble",
+    )
+    run.add_argument(
         "--keep-blocks",
         default="",
         help="comma separated page:id pairs to always keep, e.g. 001.jpg:3,001.jpg:5",
@@ -568,6 +575,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         bubble_model=args.bubble_model,
         bubble_confidence=args.bubble_conf,
         page_scopes=tuple(args.page_scope),
+        force_bubble=tuple(args.force_bubble),
         keep_blocks=tuple(filter(None, (s.strip() for s in args.keep_blocks.split(",")))),
         force_blocks=tuple(filter(None, (s.strip() for s in args.erase_blocks.split(",")))),
     )

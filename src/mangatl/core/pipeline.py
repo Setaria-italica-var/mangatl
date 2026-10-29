@@ -126,6 +126,7 @@ class PipelineService:
                 annotate_bubbles(
                     page, image_path, config.erase_scope, self.bubble_detector
                 )
+                _apply_forced_bubbles(page, config)
                 if config.merge_fragments:
                     page.blocks = merge_blocks(page.blocks)
             elif stage == "ocr":
@@ -458,6 +459,15 @@ def is_bubble(bbox: tuple[int, int, int, int], regions, page_size: tuple[int, in
     return rx1 <= x1 + 2 and ry1 <= y1 + 2 and rx2 >= x2 - 2 and ry2 >= y2 - 2
 
 
+def _apply_forced_bubbles(page: Page, config: RunConfig) -> None:
+    """Honour ``--force-bubble page:id`` after the model had its say."""
+    forced = {item.strip() for item in config.force_bubble}
+    for block in page.blocks:
+        if f"{page.name}:{block.id}" in forced:
+            block.in_bubble = True
+            block.bubble_bbox = block.bubble_bbox or block.bbox
+
+
 def _scope_overrides(config: RunConfig) -> dict[str, str]:
     """Parse ``--page-scope 009.jpg=all`` entries into a mapping."""
     result: dict[str, str] = {}
@@ -515,6 +525,19 @@ def annotate_with_model(page: Page, image_path: Path, detector) -> bool:
                 usable, key=lambda bubble: coverage(block.bbox, [bubble]), default=None
             )
             block.bubble_bbox = best.bbox if best is not None else None
+            if best is not None:
+                overlap = coverage(block.bbox, [best])
+                if overlap < 0.9:
+                    # A block straddling the bubble edge (an SFX crossing into the
+                    # artwork): erase only the part inside, never the background.
+                    bx1, by1, bx2, by2 = best.bbox
+                    x1, y1, x2, y2 = block.bbox
+                    block.erase_bbox = (
+                        max(x1, bx1),
+                        max(y1, by1),
+                        min(x2, bx2),
+                        min(y2, by2),
+                    )
         else:
             block.bubble_bbox = None
     return True

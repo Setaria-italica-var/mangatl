@@ -32,6 +32,7 @@ class TextBlock:
     bbox_erase: bool = True
     in_bubble: bool = True
     bubble_bbox: tuple[int, int, int, int] | None = None
+    erase_bbox: tuple[int, int, int, int] | None = None
     ocr_score: float = 0.0
     ocr_source: str = ""
     # Transient: every engine's reading for this block, used by the LLM judge.
@@ -59,6 +60,7 @@ class TextBlock:
             "ocr_score": round(self.ocr_score, 4),
             "ocr_source": self.ocr_source,
             "bubble_bbox": list(self.bubble_bbox) if self.bubble_bbox else None,
+            "erase_bbox": list(self.erase_bbox) if self.erase_bbox else None,
         }
 
     @classmethod
@@ -87,4 +89,5 @@ class TextBlock:
             ocr_score=float(data.get("ocr_score", 0.0)),
             ocr_source=str(data.get("ocr_source", "")),
             bubble_bbox=tuple(data["bubble_bbox"]) if data.get("bubble_bbox") else None,
+            erase_bbox=tuple(data["erase_bbox"]) if data.get("erase_bbox") else None,
         )

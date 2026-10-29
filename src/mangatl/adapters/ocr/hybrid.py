@@ -115,6 +115,12 @@ class FusionOcr:
             right = block.text.strip()
             left_score = plausibility(left)
             right_score = plausibility(right)
+            # A two-character reading of a wide block is usually a model failure;
+            # the other engine saw more text.
+            if len(left) < 0.5 * len(right) and right_score >= 0.6:
+                left_score = min(left_score, right_score - 0.2)
+            elif len(right) < 0.5 * len(left) and left_score >= 0.6:
+                right_score = min(right_score, left_score - 0.2)
             if left_score >= right_score:
                 block.text, block.ocr_score = left, left_score
                 block.ocr_source = primary_name

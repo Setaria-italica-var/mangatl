@@ -92,7 +92,8 @@ def erased_mask(
     allowed = np.zeros(gray.shape, dtype=bool)
     height, width = gray.shape
     for block in blocks:
-        x1, y1, x2, y2 = clip_bbox(block.bbox, width, height)
+        area = block.erase_bbox or block.bbox
+        x1, y1, x2, y2 = clip_bbox(area, width, height)
         allowed[y1:y2, x1:x2] = True
     if not allowed.any():
         return allowed
