@@ -388,8 +388,8 @@ def annotate_with_model(page: Page, image_path: Path, detector) -> bool:
         for bubble in bubbles:
             bx1, by1, bx2, by2 = bubble.bbox
             area = max(1, (bx2 - bx1) * (by2 - by1))
-            if area < 0.9 * block_area:
-                continue
+            if area < 0.25 * block_area:
+                continue  # far too small to be the bubble around this text
             if page_area is not None and area > 0.4 * page_area:
                 continue
             usable.append(bubble)

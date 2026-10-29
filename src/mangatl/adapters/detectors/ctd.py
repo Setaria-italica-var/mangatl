@@ -174,7 +174,11 @@ def merge_boxes(
     return merged
 
 
-def merge_lines(boxes: Sequence[tuple[int, int, int, int]]) -> list[tuple[int, int, int, int]]:
+def merge_lines(
+    boxes: Sequence[tuple[int, int, int, int]],
+    page_size: tuple[int, int] | None = None,
+    max_area_ratio: float = 0.12,
+) -> list[tuple[int, int, int, int]]:
     """Merge lines that belong to one block, never across a size jump.
 
     ComicTextDetector returns text *lines*. Lines of one speech bubble share a
@@ -196,13 +200,11 @@ def merge_lines(boxes: Sequence[tuple[int, int, int, int]]) -> list[tuple[int, i
         return []
 
     def similar(first: tuple[int, int, int, int], second: tuple[int, int, int, int]) -> bool:
+        # Only the glyph height must match: lines of one bubble have very different
+        # widths (a lone と next to a full line), but a sound effect is much taller.
         first_height = max(1, first[3] - first[1])
         second_height = max(1, second[3] - second[1])
-        first_width = max(1, first[2] - first[0])
-        second_width = max(1, second[2] - second[0])
-        height_ratio = first_height / second_height
-        width_ratio = first_width / second_width
-        return 0.5 <= height_ratio <= 2.0 and 0.4 <= width_ratio <= 2.5
+        return 0.45 <= first_height / second_height <= 2.2
 
     changed = True
     while changed:
@@ -221,12 +223,27 @@ def merge_lines(boxes: Sequence[tuple[int, int, int, int]]) -> list[tuple[int, i
                 stacked = overlap_x > 0.3 * line_width and gap_y <= line_height
                 side_by_side = overlap_y > 0.3 * line_height and gap_x <= 0.7 * line_width
                 if stacked or side_by_side:
-                    result[index] = (
+                    union = (
                         min(box[0], other[0]),
                         min(box[1], other[1]),
                         max(box[2], other[2]),
                         max(box[3], other[3]),
                     )
+                    union_width = union[2] - union[0]
+                    union_height = union[3] - union[1]
+                    # Cap the growth: chained merges used to swallow a whole page.
+                    tallest = max(box[3] - box[1], other[3] - other[1])
+                    widest = max(box[2] - box[0], other[2] - other[0])
+                    if union_width >= union_height:
+                        allowed = union_height <= 3.0 * tallest
+                    else:
+                        allowed = union_width <= 3.0 * widest
+                    if allowed and page_size is not None:
+                        page_area = max(1, page_size[0] * page_size[1])
+                        allowed = union_width * union_height <= max_area_ratio * page_area
+                    if not allowed:
+                        continue
+                    result[index] = union
                     changed = True
                     break
             else:
@@ -306,7 +323,7 @@ class CtdDetector:
             )
             for x1, y1, x2, y2 in small_boxes
         ]
-        boxes = merge_lines(boxes)
+        boxes = merge_lines(boxes, page_size=(width, height))
         return self._to_blocks(boxes, width, height), probability
 
     @staticmethod
