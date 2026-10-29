@@ -118,18 +118,26 @@ def test_undo_restores_previous_inpainted_bytes(window):
 
 def test_undo_restores_a_rotated_frame(window):
     block = window.editor.page.blocks[0]
-    window.on_block_rotated(block.id, 32.0)
-    assert next(b for b in window.editor.page.blocks if b.id == block.id).rotation == 32.0
+    original = block.rotation
+    window.on_block_rotated(block.id, original + 32.0)
+    rotated = next(b for b in window.editor.page.blocks if b.id == block.id)
+    assert rotated.rotation == original + 32.0
 
     window.undo()
 
-    assert next(b for b in window.editor.page.blocks if b.id == block.id).rotation == 0.0
+    assert next(b for b in window.editor.page.blocks if b.id == block.id).rotation == original
 
 
 def test_undo_restores_a_moved_frame(window):
     block = window.editor.page.blocks[0]
     original = block.text_bbox or block.bbox
-    window.on_geometry_changed(block.id, (original[0] + 20, original[1] + 30, original[2] + 20, original[3] + 30))
+    moved = (
+        original[0] + 20,
+        original[1] + 30,
+        original[2] + 20,
+        original[3] + 30,
+    )
+    window.on_geometry_changed(block.id, moved)
 
     window.undo()
 
