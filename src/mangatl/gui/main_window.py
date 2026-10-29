@@ -27,6 +27,7 @@ from mangatl.gui.canvas import PageCanvas
 from mangatl.gui.editor import PageEditor
 from mangatl.gui.pages import PageTabs, ThumbnailList
 from mangatl.gui.search import GlobalSearchDialog
+from mangatl.gui.theme import icon, toolbar_icon_size
 
 
 class MainWindow(QMainWindow):
@@ -59,48 +60,58 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("项目里没有图片：请把页面放进该目录")
 
     # -- construction -----------------------------------------------------
+    def _action(self, icon_name: str, text: str, shortcut=None, checkable=False) -> QAction:
+        """Create a toolbar action with an icon and optional shortcut."""
+        action = QAction(icon(icon_name), text, self)
+        action.setCheckable(checkable)
+        if shortcut is not None:
+            action.setShortcut(QKeySequence(shortcut))
+        return action
+
     def _build_toolbar(self) -> None:
         bar = QToolBar("工具", self)
         bar.setMovable(False)
+        bar.setIconSize(toolbar_icon_size())
         self.addToolBar(bar)
 
-        self.act_select = QAction("选择", self, checkable=True, checked=True)
+        self.act_select = self._action("fa6s.arrow-pointer", "选择", checkable=True)
+        self.act_select.setChecked(True)
         self.act_select.triggered.connect(lambda: self._set_mode("select"))
-        self.act_lasso = QAction("套索", self, checkable=True)
+        self.act_lasso = self._action("fa6s.lasso", "套索", checkable=True)
         self.act_lasso.triggered.connect(lambda: self._set_mode("lasso"))
-        self.act_rect = QAction("矩形", self, checkable=True)
+        self.act_rect = self._action("fa6s.vector-square", "矩形", checkable=True)
         self.act_rect.triggered.connect(lambda: self._set_mode("rect"))
         for action in (self.act_select, self.act_lasso, self.act_rect):
             bar.addAction(action)
 
         bar.addSeparator()
-        self.act_fit = QAction("适应窗口", self, shortcut=QKeySequence("F"))
+        self.act_fit = self._action("fa6s.expand", "适应窗口", "F")
         self.act_fit.triggered.connect(lambda: self.canvas.fit())
         bar.addAction(self.act_fit)
-        self.act_rotate = QAction("旋转 90°", self, shortcut=QKeySequence("R"))
+        self.act_rotate = self._action("fa6s.rotate-right", "旋转 90°", "R")
         self.act_rotate.triggered.connect(lambda: self.canvas.rotate_view())
         bar.addAction(self.act_rotate)
 
         bar.addSeparator()
-        self.act_prev = QAction("上一页", self, shortcut=QKeySequence("PgUp"))
+        self.act_prev = self._action("fa6s.chevron-left", "上一页", "PgUp")
         self.act_prev.triggered.connect(lambda: self.load_page(self.page_index - 1))
-        self.act_next = QAction("下一页", self, shortcut=QKeySequence("PgDown"))
+        self.act_next = self._action("fa6s.chevron-right", "下一页", "PgDown")
         self.act_next.triggered.connect(lambda: self.load_page(self.page_index + 1))
         bar.addAction(self.act_prev)
         bar.addAction(self.act_next)
 
         bar.addSeparator()
-        self.act_search = QAction("全局搜索", self, shortcut=QKeySequence("Ctrl+G"))
+        self.act_search = self._action("fa6s.magnifying-glass", "全局搜索", "Ctrl+G")
         self.act_search.triggered.connect(self.open_search)
         bar.addAction(self.act_search)
-        self.act_run = QAction("运行本页", self, shortcut=QKeySequence("F5"))
+        self.act_run = self._action("fa6s.play", "运行本页", "F5")
         self.act_run.triggered.connect(lambda: self.run_page(self.page_index))
         bar.addAction(self.act_run)
 
-        self.act_undo = QAction("撤销", self, shortcut=QKeySequence.StandardKey.Undo)
+        self.act_undo = self._action("fa6s.rotate-left", "撤销", "Ctrl+Z")
         self.act_undo.triggered.connect(self.undo)
         bar.addAction(self.act_undo)
-        self.act_save = QAction("保存", self, shortcut=QKeySequence.StandardKey.Save)
+        self.act_save = self._action("fa6s.floppy-disk", "保存", "Ctrl+S")
         self.act_save.triggered.connect(self.save)
         bar.addAction(self.act_save)
 
