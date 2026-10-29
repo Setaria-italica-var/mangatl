@@ -27,6 +27,16 @@ SYSTEM_PROMPT = (
 )
 
 
+REPAIR_PROMPT = (
+    "The user gives noisy OCR of Japanese manga text: characters are often wrong, "
+    "Latin letters may replace kana, and layout noise may be included. "
+    "Reconstruct the most likely original Japanese text using the surrounding "
+    "context. Keep it short and natural. Never translate. "
+    'If you cannot infer it, return an empty string. '
+    'Reply with JSON only: {"items":[{"id":<int>,"text":"<japanese>"}]}'
+)
+
+
 class LlmJudge:
     """Ask an OpenAI-compatible model which OCR candidate to trust."""
 
@@ -40,6 +50,36 @@ class LlmJudge:
     def available(self) -> bool:
         """Whether a provider is configured."""
         return bool(self.config.api_key)
+
+    def repair_many(
+        self, items: Sequence[tuple[int, str]], context: Sequence[str] = ()
+    ) -> dict[int, str]:
+        """Ask the model to reconstruct heavily corrupted OCR text."""
+        if not items or not self.available:
+            return {}
+        payload = {
+            "context": list(context)[:6],
+            "items": [{"id": block_id, "ocr": text} for block_id, text in items],
+        }
+        body = {
+            "model": self.config.model,
+            "temperature": 0.2,
+            "messages": [
+                {"role": "system", "content": REPAIR_PROMPT},
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+            ],
+        }
+        try:
+            response = self._transport.post(
+                f"{self.config.base_url.rstrip('/')}/chat/completions",
+                body,
+                self.config.api_key,
+                self.config.timeout,
+            )
+            content = response["choices"][0]["message"]["content"]
+        except Exception:  # noqa: BLE001 - provider failure means "no repair"
+            return {}
+        return _parse_texts(content)
 
     def choose_many(
         self,
@@ -85,6 +125,30 @@ class LlmJudge:
         except (TranslationError, KeyError, IndexError, TypeError):
             return {}
         return _parse_picks(content)
+
+
+def _parse_texts(content: str) -> dict[int, str]:
+    """Extract ``{id: text}`` from a repair reply."""
+    start, end = content.find("{"), content.rfind("}")
+    if start < 0 or end <= start:
+        return {}
+    try:
+        data = json.loads(content[start : end + 1])
+    except json.JSONDecodeError:
+        return {}
+    items = data.get("items")
+    if not isinstance(items, list):
+        return {}
+    result: dict[int, str] = {}
+    for item in items:
+        try:
+            block_id = int(item["id"])
+            text = str(item.get("text", "")).strip()
+        except (KeyError, TypeError, ValueError):
+            continue
+        if text:
+            result[block_id] = text
+    return result
 
 
 def _parse_picks(content: str) -> dict[int, tuple[int, float]]:

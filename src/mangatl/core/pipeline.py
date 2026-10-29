@@ -132,9 +132,12 @@ class PipelineService:
                 if not page.blocks:
                     raise ValueError(f"{page.name}: OCR needs blocks from the detect stage")
                 page.blocks = self.ocr.recognize(image_path, page.blocks)
+                engine_name = getattr(self.ocr, "name", "")
                 for block in page.blocks:
                     if not block.ocr_source:
-                        block.ocr_source = getattr(self.ocr, "name", "")
+                        block.ocr_source = engine_name
+                    if block.text.strip() and not block.ocr_candidates:
+                        block.ocr_candidates = [(block.ocr_source, block.text.strip())]
                     block.ocr_score = plausibility(block.text) if block.text.strip() else 0.0
                 if config.verify_ocr:
                     self._verify_ocr(page, image_path)
@@ -228,7 +231,41 @@ class PipelineService:
             if choice < 0 or confidence < 0.5 or block.ocr_score < 0.45:
                 block.needs_review = True
 
+        self._repair_text(page)
         self._vision_read(page, image_path)
+
+    def _repair_text(self, page: Page) -> None:
+        """Reconstruct heavy OCR noise with the model, then re-validate it.
+
+        A repaired string is accepted only when it is clearly more plausible than
+        the OCR noise and still looks like Japanese; it is always flagged for
+        review because a model wrote it.
+        """
+        if self.ocr_judge is None or not getattr(self.ocr_judge, "available", False):
+            return
+        suspects = [
+            block
+            for block in page.blocks
+            if block.in_bubble and block.text.strip() and block.ocr_score < 0.45
+        ]
+        if not suspects:
+            return
+        suspects.sort(key=lambda block: block.ocr_score)
+        suspects = suspects[: max(1, int(self.verify_budget))]
+        context = [block.text for block in page.blocks if block.text.strip()][:6]
+        repaired = self.ocr_judge.repair_many(
+            [(block.id, block.text) for block in suspects], context=context
+        )
+        for block in suspects:
+            text = repaired.get(block.id, "").strip()
+            if not text:
+                continue
+            score = plausibility(text)
+            if score >= 0.6 and score > block.ocr_score:
+                block.text = text
+                block.ocr_score = score
+                block.ocr_source = "llm_repair"
+            block.needs_review = True
 
     def _vision_read(self, page: Page, image_path: Path) -> None:
         """Read the worst blocks with a vision model, if one is configured.

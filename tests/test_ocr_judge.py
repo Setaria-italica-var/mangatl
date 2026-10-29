@@ -50,3 +50,23 @@ def test_reject_pick_is_preserved() -> None:
     judge, _ = judge_with(reply)
 
     assert judge.choose_many([(1, [("a", "x"), ("b", "y")])])[1] == (-1, 0.8)
+
+
+def test_repair_parses_texts() -> None:
+    reply = json.dumps({"items": [{"id": 2, "text": "おはようございます"}]})
+    judge, _ = judge_with(reply)
+
+    assert judge.repair_many([(2, "ｒＪＳｍ")]) == {2: "おはようございます"}
+
+
+def test_repair_ignores_empty_text() -> None:
+    reply = json.dumps({"items": [{"id": 2, "text": ""}]})
+    judge, _ = judge_with(reply)
+
+    assert judge.repair_many([(2, "???")]) == {}
+
+
+def test_repair_without_key_does_nothing() -> None:
+    judge = LlmJudge(LlmConfig(api_key=""))
+
+    assert judge.repair_many([(1, "x")]) == {}
