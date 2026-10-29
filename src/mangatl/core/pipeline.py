@@ -286,7 +286,7 @@ class PipelineService:
         page_area = max(1, width * height)
         for block in blocks:
             x1, y1, x2, y2 = block.bbox
-            if (x2 - x1) * (y2 - y1) > 0.03 * page_area:
+            if (x2 - x1) * (y2 - y1) > 0.08 * page_area:
                 continue
             if not bounded_background(pixels, block.bbox):
                 continue
