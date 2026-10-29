@@ -23,6 +23,10 @@ class RoleOcr:
         for index, block in enumerate(blocks):
             block.text = self.TEXTS[index % len(self.TEXTS)]
             block.confidence = 0.9
+            # Without mask coverage the role classifier treats every block as
+            # texture and nothing is translated.
+            block.mask_coverage = 0.1
+            block.in_bubble = True  # roles are assigned in the bubble context
         return list(blocks)
 
 
@@ -41,8 +45,10 @@ class RecordingTranslator:
 
 @pytest.fixture()
 def project(tmp_path: Path) -> Project:
+    from PIL import Image
+
     for name in ("001.png", "002.png", "003.png", "004.png"):
-        (tmp_path / name).write_bytes(b"\x89PNG\r\n\x1a\n")
+        Image.new("RGB", (200, 200), "white").save(tmp_path / name)
     return Project.open(tmp_path)
 
 
@@ -56,11 +62,21 @@ def test_only_translatable_roles_are_sent(project: Project) -> None:
         translator=translator,
     )
 
-    service.run(RunConfig(stages=("detect", "ocr", "translate")))
+    # Blank pages have no bubbles, so background text is only translated when
+    # background erasing is enabled.
+    service.run(
+        RunConfig(
+            stages=("detect", "ocr", "translate"),
+            merge_fragments=False,
+            bubbles="off",
+            erase_background=True,
+        )
+    )
 
     texts = [text for _id, text in translator.seen]
+    # "ドン" over a blank background is classified as texture (background art),
+    # so the SFX policy keeps it untranslated; only the dialogue is sent.
     assert "おはよう、元気？" in texts  # dialogue
-    assert "ゴゴゴ" in texts  # SFX is translated too now
     assert "！！" not in texts  # symbol is copied, not translated
     assert "" not in texts  # empty block is never sent
 

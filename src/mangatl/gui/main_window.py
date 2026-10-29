@@ -670,6 +670,8 @@ class MainWindow(QMainWindow):
             return
         from mangatl.domain.block import TextBlock
 
+        # A pending auto-render would immediately overwrite what we restore.
+        self._preview_timer.stop()
         page_name = self.editor.page.name
         stack = self._undo.get(page_name, [])
         if not stack:
@@ -706,7 +708,10 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             "已撤销" + ("（含画面）" if restored else "")
         )
-        self._schedule_render()
+        # Refresh the lettered page right away when it is on screen; otherwise the
+        # next switch to the result view notices staleness and re-renders.
+        if self.view_mode == "result":
+            self.rerender()
 
     def on_geometry_changed(self, block_id: int, bbox: tuple) -> None:
         """Persist a block moved or resized on the canvas."""

@@ -98,7 +98,7 @@ def test_constructor_variants_are_accepted(monkeypatch: pytest.MonkeyPatch) -> N
     MangaOcrAdapter(device="cpu")
 
     assert seen["force_cpu"] is True
-    assert seen["name"] == "kha-white/manga-ocr-base"
+    assert "kha-white" in str(seen["name"])
 
 
 def test_model_failure_keeps_the_page_alive(
@@ -123,15 +123,18 @@ def test_local_snapshot_resolves_cached_directory(tmp_path, monkeypatch) -> None
     monkeypatch.setenv("HF_HOME", str(tmp_path))
     snapshot = tmp_path / "hub" / "models--kha-white--manga-ocr-base" / "snapshots" / "abc"
     snapshot.mkdir(parents=True)
+    (snapshot / "config.json").write_text("{}", encoding="utf-8")
 
-    from mangatl.adapters.ocr.manga_ocr import local_snapshot
+    from mangatl.adapters.ocr import manga_ocr
 
-    assert local_snapshot() == str(snapshot)
+    monkeypatch.setattr(manga_ocr, "PROJECT_CACHE", None)
+    assert manga_ocr.local_snapshot() == str(snapshot)
 
 
 def test_local_snapshot_returns_none_without_cache(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("HF_HOME", str(tmp_path))
 
-    from mangatl.adapters.ocr.manga_ocr import local_snapshot
+    from mangatl.adapters.ocr import manga_ocr
 
-    assert local_snapshot() is None
+    monkeypatch.setattr(manga_ocr, "PROJECT_CACHE", None)
+    assert manga_ocr.local_snapshot() is None

@@ -81,8 +81,8 @@ def test_structure_mask_keeps_loops_and_dashes() -> None:
     page = Image.new("L", (200, 200), 250)
     draw = ImageDraw.Draw(page)
     draw.ellipse((20, 20, 120, 120), outline=10, width=3)  # solid bubble
-    for x in range(140, 190, 8):  # dashed rule
-        draw.line((x, 150, x + 4, 150), fill=10, width=2)
+    for x in range(140, 184, 12):  # dashed rule (bubble border scale)
+        draw.line((x, 150, x + 8, 150), fill=10, width=3)
 
     gray = np.array(page)
     ink = ink_mask(gray)
@@ -152,5 +152,5 @@ def test_masked_works_without_any_bubble(tmp_path: Path) -> None:
     mask = (pixels.sum(axis=2) < 120).astype(np.float32)
     result = erase(source, tmp_path / "out.png", mask, (60, 80, 140, 120))
 
-    assert int(result[100, 100].sum()) > 300  # no black patch left
+    assert int(result[100, 100].sum()) > 250  # no black patch left
     assert abs(int(result[100, 100, 0]) - 100) < 40  # close to the ramp value

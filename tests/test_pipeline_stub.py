@@ -17,13 +17,18 @@ from mangatl.core.pipeline import (
 )
 from mangatl.domain.project import Project
 
-PNG_STUB = b"\x89PNG\r\n\x1a\n"
+
+def write_page(path: Path) -> None:
+    """Real PNG: the pipeline measures page size, so signature-only bytes fail."""
+    from PIL import Image
+
+    Image.new("RGB", (200, 200), "white").save(path)
 
 
 @pytest.fixture()
 def project(tmp_path: Path) -> Project:
     for name in ("001.png", "002.png"):
-        (tmp_path / name).write_bytes(PNG_STUB)
+        write_page(tmp_path / name)
     return Project.open(tmp_path)
 
 
@@ -38,7 +43,8 @@ def make_service(project: Project, events: list | None = None) -> PipelineServic
 
 
 def test_pipeline_runs_all_stages(project: Project) -> None:
-    summary = make_service(project).run(RunConfig())
+    # Merging is a separate feature; this test counts the raw grid boxes.
+    summary = make_service(project).run(RunConfig(merge_fragments=False))
 
     assert summary.total == 2
     assert summary.ok == 2
@@ -70,16 +76,18 @@ def test_pipeline_skips_finished_stages(project: Project) -> None:
 
 
 def test_force_reruns_stages(project: Project) -> None:
-    make_service(project).run(RunConfig())
-    summary = make_service(project).run(RunConfig(force=True))
+    make_service(project).run(RunConfig(merge_fragments=False))
+    summary = make_service(project).run(
+        RunConfig(force=True, merge_fragments=False)
+    )
 
     assert summary.ok == 2
     assert summary.blocks == 8
 
 
 def test_bad_page_is_isolated(tmp_path: Path) -> None:
-    (tmp_path / "001.png").write_bytes(PNG_STUB)
-    (tmp_path / "002.png").write_bytes(PNG_STUB)
+    write_page(tmp_path / "001.png")
+    write_page(tmp_path / "002.png")
     project = Project.open(tmp_path)
 
     class ExplodingDetector(GridDetector):
@@ -111,7 +119,7 @@ def test_missing_directory_raises(tmp_path: Path) -> None:
 
 def test_unknown_stage_rejected() -> None:
     with pytest.raises(ValueError):
-        RunConfig(stages=("detect", "render"))
+        RunConfig(stages=("detect", "bogus"))
 
 
 def test_page_done_events(project: Project) -> None:

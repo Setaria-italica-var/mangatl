@@ -264,10 +264,14 @@ def structure_mask(
         short_side = float(max(1, min(item.width, item.height)))
         loop = item.fill < 0.2 and long_side > 0.12 * page_extent
         blob = item.fill > 0.85 and item.area > 0.02 * page_area
+        if blob and block_area is not None:
+            # A filled shape the size of the text block is a solid glyph block and
+            # must be erased; only much larger panels are structure.
+            blob = item.area > 3 * float(block_area.sum())
         dash = (
             long_side / short_side >= 1.8
             and item.thickness <= 5
-            and item.area >= 10
+            and item.area >= 6
         )
         if dash and block_area is not None:
             # A dash sits on a bubble edge, i.e. outside the text block. The same

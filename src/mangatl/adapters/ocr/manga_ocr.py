@@ -23,6 +23,8 @@ from mangatl.domain.block import TextBlock
 
 DEFAULT_MODEL = "kha-white/manga-ocr-base"
 NEUTRAL_CONFIDENCE = 0.6
+# Project-local HuggingFace cache; tests set this to None to isolate lookups.
+PROJECT_CACHE: Path | None = Path("data/hf")
 
 
 def local_snapshot(model_name: str = DEFAULT_MODEL) -> str | None:
@@ -33,7 +35,7 @@ def local_snapshot(model_name: str = DEFAULT_MODEL) -> str | None:
     directory is what keeps the library offline: given a repo id it always issues
     HEAD requests, whatever the environment says.
     """
-    roots: list[Path] = [Path("data/hf")]
+    roots: list[Path] = [PROJECT_CACHE] if PROJECT_CACHE is not None else []
     for variable in ("HF_HOME", "HUGGINGFACE_HUB_CACHE"):
         value = os.environ.get(variable)
         if value:
