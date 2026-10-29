@@ -824,8 +824,12 @@ class MainWindow(QMainWindow):
         block.translation = translation.strip()
         if role:
             block.role = role
+        # Keep booleans: ``False == 0``, so a naive filter would drop "bold: false"
+        # and the estimator would keep the original (possibly bold) weight.
         block.style = {
-            key: value for key, value in style.items() if value not in ("", 0, 0.0)
+            key: value
+            for key, value in style.items()
+            if isinstance(value, bool) or value not in ("", 0, 0.0)
         }
         block.ocr_source = "manual"
         block.needs_review = False
