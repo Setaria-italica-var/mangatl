@@ -43,3 +43,12 @@ inspect.txt
 .idea/
 Thumbs.db
 desktop.ini
+
+# local caches / sandbox leftovers
+.pytest-tmp/
+.pytest_cache/
+.ruff_cache/
+pip-*/
+pytest-*/
+torchinductor_*/
+mangatl-launcher*.log
