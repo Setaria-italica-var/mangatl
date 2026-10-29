@@ -61,7 +61,7 @@ class EditorSheet(QWidget):
     regionAction = Signal(str)
     blockEdited = Signal(int, str, str, str)  # id, text, translation, role
     blockAction = Signal(str)  # reocr / translate / render / delete
-    styleApplied = Signal(int, dict, bool)  # id, style, also_rerender
+    blockApplied = Signal(int, str, str, str, dict)  # id, text, translation, role, style
 
     def __init__(self) -> None:
         super().__init__()
@@ -133,13 +133,12 @@ class EditorSheet(QWidget):
         self._fg_colour = ""
         self._bg_colour = ""
 
-        self.btn_style = PrimaryPushButton(FIF.BRUSH, "应用样式并排版")
-        self.btn_style.clicked.connect(lambda: self._emit_style(True))
-        layout.addWidget(self.btn_style)
+
 
         row1 = QHBoxLayout()
-        self.btn_apply = PrimaryPushButton(FIF.ACCEPT, "应用文本")
-        self.btn_apply.clicked.connect(self._emit_edit)
+        self.btn_apply = PrimaryPushButton(FIF.ACCEPT, "应用并排版")
+        self.btn_apply.setToolTip("保存原文/译文/角色/样式，并立即重绘本页")
+        self.btn_apply.clicked.connect(self._apply_all)
         row1.addWidget(self.btn_apply)
         self.btn_reocr = PushButton(FIF.SYNC, "重新识别")
         self.btn_reocr.clicked.connect(lambda: self.blockAction.emit("reocr"))
@@ -239,9 +238,7 @@ class EditorSheet(QWidget):
             f"描边色 {self._bg_colour}" if self._bg_colour else "描边色（自动）"
         )
 
-    def _emit_style(self, rerender: bool) -> None:
-        if self._block_id is None:
-            return
+    def _style_dict(self) -> dict:
         categories = {"黑体": "sans", "宋体": "serif", "手写": "hand"}
         aligns = {"居中": "center", "左对齐": "left", "右对齐": "right"}
         style = {
@@ -256,16 +253,18 @@ class EditorSheet(QWidget):
             style["fg"] = self._fg_colour
         if self._bg_colour:
             style["bg"] = self._bg_colour
-        self.styleApplied.emit(self._block_id, style, rerender)
+        return style
 
-    def _emit_edit(self) -> None:
+    def _apply_all(self) -> None:
+        """One button: text, translation, role, style and a fresh render."""
         if self._block_id is None:
             return
-        self.blockEdited.emit(
+        self.blockApplied.emit(
             self._block_id,
             self.text_edit.toPlainText(),
             self.translation_edit.toPlainText(),
             self.role_box.currentText(),
+            self._style_dict(),
         )
 
 

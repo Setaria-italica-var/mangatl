@@ -332,7 +332,7 @@ class MainWindow(QMainWindow):
         editor.regionAction.connect(self.on_sheet_region)
         editor.blockEdited.connect(self.on_block_edited)
         editor.blockAction.connect(self.on_block_action)
-        editor.styleApplied.connect(self.on_style_applied)
+        editor.blockApplied.connect(self.on_block_applied)
         self.sheets["blocks"].blockSelected.connect(self.select_block)
         self.sheets["blocks"].blockEdited.connect(self.on_block_edited)
         self.sheets["search"].jumpRequested.connect(self._jump_to_block)
@@ -754,18 +754,35 @@ class MainWindow(QMainWindow):
         self.canvas.set_blocks(self.editor.page.blocks, [block_id])
         self.statusBar().showMessage(f"已更新 #{block_id}")
 
-    def on_style_applied(self, block_id: int, style: dict, rerender: bool) -> None:
+    def on_block_applied(
+        self,
+        block_id: int,
+        text: str,
+        translation: str,
+        role: str,
+        style: dict,
+    ) -> None:
+        """Single "apply" action: text, role, style, then a fresh render."""
         if self.editor is None:
             return
         block = next((b for b in self.editor.page.blocks if b.id == block_id), None)
         if block is None:
             return
         self._snapshot()
-        self.editor.set_style(block, style)
-        self.statusBar().showMessage(f"#{block_id} 样式已保存")
-        self._schedule_render()
-        if rerender:
-            self.rerender()
+        block.text = text.strip()
+        block.translation = translation.strip()
+        if role:
+            block.role = role
+        block.style = {
+            key: value for key, value in style.items() if value not in ("", 0, 0.0)
+        }
+        block.ocr_source = "manual"
+        block.needs_review = False
+        self.editor.project.save()
+        self._touch_page()
+        self.canvas.set_blocks(self.editor.page.blocks, [block_id])
+        self.rerender()
+        self.statusBar().showMessage(f"#{block_id} 已应用并重排")
 
     def on_block_action(self, action: str) -> None:
         if action == "reocr":
