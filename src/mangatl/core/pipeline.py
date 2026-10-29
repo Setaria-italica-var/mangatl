@@ -147,6 +147,8 @@ class PipelineService:
                     block.ocr_score = plausibility(block.text) if block.text.strip() else 0.0
                 if config.two_pass_bubbles:
                     self._second_pass_bubbles(page, image_path)
+                if config.bubble_reocr:
+                    self._recheck_short_blocks(page, image_path)
                 if config.verify_ocr:
                     self._verify_ocr(page, image_path)
                 assign_roles(page, config)
@@ -294,6 +296,55 @@ class PipelineService:
             block.in_bubble = True
             block.bubble_bbox = block.bbox
             block.needs_review = False
+
+    def _recheck_short_blocks(self, page: Page, image_path: Path) -> None:
+        """Re-read a bubble whose text is far too short for its size.
+
+        A box that clipped a corner of a bubble yields one or two characters while
+        the bubble clearly holds a sentence. Reading the whole bubble area with the
+        same engine recovers those lines; the replacement must be longer and no
+        less plausible, so a bad re-read cannot make things worse.
+        """
+        if self.ocr is None:
+            return
+        candidates = []
+        for block in page.blocks:
+            if not block.in_bubble or block.bubble_bbox is None:
+                continue
+            text_length = len(block.text.strip())
+            if text_length > 6:
+                continue
+            bx1, by1, bx2, by2 = block.bubble_bbox
+            bubble_area = max(1, (bx2 - bx1) * (by2 - by1))
+            char_size = max(8, min(block.bbox[2] - block.bbox[0], block.bbox[3] - block.bbox[1]))
+            expected = bubble_area / (0.6 * char_size) ** 2
+            if expected < 4:
+                continue
+            if text_length >= 0.5 * expected:
+                continue
+            candidates.append(block)
+        for block in candidates[:6]:
+            probe = TextBlock(
+                id=block.id,
+                bbox=block.bubble_bbox,
+                vertical=block.vertical,
+                in_bubble=True,
+            )
+            try:
+                result = self.ocr.recognize(image_path, [probe])[0]
+            except Exception:  # a failed re-read must not break the page
+                continue
+            text = result.text.strip()
+            if len(text) <= len(block.text.strip()):
+                continue
+            score = plausibility(text)
+            if score + 0.05 < block.ocr_score:
+                continue
+            block.text = text
+            block.ocr_score = score
+            block.ocr_source = f"{result.ocr_source or 'ocr'}+bubble"
+            if score < 0.45:
+                block.needs_review = True
 
     def _verify_ocr(self, page: Page, image_path: Path) -> None:
         """Ask the judge to pick between disagreeing engines.
