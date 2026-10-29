@@ -131,6 +131,21 @@ class PageRenderer:
             )
         return int(layout.font_size)
 
+    def estimate(self, block: TextBlock, style_source: Path | None = None) -> dict:
+        """Current effective style as plain values, for locking during edits."""
+        pixels = None
+        if style_source is not None and Path(style_source).is_file():
+            with Image.open(style_source) as handle:
+                pixels = _rgb_array(handle.convert("RGB"))
+        style = estimate_style(pixels, None, block.bbox, vertical=block.vertical)
+        style = apply_overrides(style, getattr(block, "style", {}) or {})
+        return {
+            "font_size": int(style.font_size),
+            "stroke": int(style.stroke_width),
+            "fg": "#{:02x}{:02x}{:02x}".format(*style.fg),
+            "bg": "#{:02x}{:02x}{:02x}".format(*style.bg),
+        }
+
     # -- internals --------------------------------------------------------
     def _draw_block(
         self,

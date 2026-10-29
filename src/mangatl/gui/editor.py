@@ -112,28 +112,37 @@ class PageEditor:
     def set_bbox(self, block: TextBlock, bbox: tuple[int, int, int, int]) -> None:
         """Move or resize a block from the canvas."""
         width, height = self._size()
-        old = block.bbox
         box = clamp_bbox(tuple(int(v) for v in bbox), width, height)
         block.bbox = box
-        if block.bubble_bbox == old:
-            block.bubble_bbox = box
+        # A manually placed frame defines its own lettering area. Keeping the old
+        # bubble clip would stop the text from following the frame.
+        block.bubble_bbox = box
         self.project.save()
 
-    def lock_font_size(self, block: TextBlock) -> int:
-        """Freeze the glyph size before a frame transform changes the box.
+    def lock_style(self, block: TextBlock) -> int:
+        """Freeze size and colours before a frame transform changes the box.
 
-        After this the renderer keeps the size and only re-wraps, so dragging a
-        handle moves the frame instead of stretching the letters.
+        Without this the renderer re-estimates typography from the pixels under
+        the box: dragging a frame over artwork would change glyph size *and*
+        colour, which reads as the text "deforming".
         """
-        existing = int((block.style or {}).get("font_size") or 0)
-        if existing:
-            return existing
-        size = int(getattr(block, "rendered_size", 0) or 0)
-        if not size:
-            size = self._measure_font_size(block)
-        if size:
-            block.style = {**(block.style or {}), "font_size": size}
-        return size
+        style = dict(block.style or {})
+        if style.get("font_size") and style.get("fg") and style.get("bg"):
+            return int(style["font_size"])
+        measured = self._measure_font_size(block)
+        if self.renderer is None:
+            self.renderer = PageRenderer()
+        try:
+            estimated = self.renderer.estimate(block, self.image_path)
+        except Exception:  # noqa: BLE001 - never block editing on an estimate failure
+            estimated = {}
+        for key in ("font_size", "fg", "bg", "stroke"):
+            if key not in style and key in estimated:
+                style[key] = estimated[key]
+        if not style.get("font_size") and measured:
+            style["font_size"] = measured
+        block.style = style
+        return int(style.get("font_size") or 0)
 
     def _measure_font_size(self, block: TextBlock) -> int:
         if self.renderer is None:

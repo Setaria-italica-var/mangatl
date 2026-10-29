@@ -671,7 +671,7 @@ class MainWindow(QMainWindow):
         if block is None:
             return
         self._snapshot()
-        self.editor.lock_font_size(block)
+        self.editor.lock_style(block)
         self.editor.set_bbox(block, bbox)
         self.canvas.set_blocks(self.editor.page.blocks, [block_id])
         self._touch_page()
@@ -686,7 +686,7 @@ class MainWindow(QMainWindow):
         if block is None:
             return
         self._snapshot()
-        self.editor.lock_font_size(block)
+        self.editor.lock_style(block)
         block.rotation = round(float(degrees), 2)
         self.editor.project.save()
         self.canvas.set_blocks(self.editor.page.blocks, [block_id])

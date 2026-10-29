@@ -49,6 +49,17 @@ def test_locked_size_survives_box_shrink(page):
     assert block.rendered_size == 24
 
 
+def test_estimate_exposes_lockable_values(page):
+    block = TextBlock(
+        id=0, bbox=(20, 20, 220, 120), translation="锁定", text="テスト"
+    )
+
+    info = PageRenderer().estimate(block, page)
+
+    assert set(info) >= {"font_size", "fg", "bg", "stroke"}
+    assert info["fg"].startswith("#") and len(info["fg"]) == 7
+
+
 def test_rendered_size_is_not_serialised(page):
     block = TextBlock(id=0, bbox=(0, 0, 10, 10), translation="x")
     block.rendered_size = 99
