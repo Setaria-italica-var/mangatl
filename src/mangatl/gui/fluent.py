@@ -27,6 +27,15 @@ QToolBar {
     spacing: 3px;
 }
 QStatusBar { background: #2b2b2b; color: #9a9a9a; }
+QMenu {
+    background: #2b2b2b;
+    color: #e6e6e6;
+    border: 1px solid #3f3f3f;
+    padding: 4px;
+}
+QMenu::item { padding: 6px 22px; border-radius: 4px; }
+QMenu::item:selected { background: #3b6ea8; color: #ffffff; }
+QMenu::separator { height: 1px; background: #3f3f3f; margin: 4px 8px; }
 QListWidget#PageThumbs {
     background: #262626;
     border: none;

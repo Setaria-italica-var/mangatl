@@ -6,7 +6,8 @@ from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QIcon, QPixmap
-from PySide6.QtWidgets import QListWidget, QListWidgetItem, QMenu
+from PySide6.QtWidgets import QListWidget, QListWidgetItem
+from qfluentwidgets import Action, RoundMenu
 
 from mangatl.domain.project import Page
 
@@ -109,13 +110,18 @@ class ThumbnailList(QListWidget):
         index = self.row(self.itemAt(position))
         if index < 0:
             return
-        menu = QMenu(self)
+        menu = RoundMenu(parent=self)
         for label, key in (
             ("运行本页", "run"),
             ("重置本页", "reset"),
             ("打开结果图", "open"),
             ("重命名…", "rename"),
         ):
-            action = menu.addAction(label)
-            action.triggered.connect(lambda _=False, k=key, i=index: self.pageAction.emit(k, i))
+            menu.addAction(
+                Action(
+                    label,
+                    menu,
+                    triggered=lambda _=False, k=key, i=index: self.pageAction.emit(k, i),
+                )
+            )
         menu.exec(self.viewport().mapToGlobal(position))

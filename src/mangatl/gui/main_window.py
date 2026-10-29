@@ -14,7 +14,6 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QMainWindow,
-    QMenu,
     QMessageBox,
     QSlider,
     QStackedWidget,
@@ -23,12 +22,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from qfluentwidgets import (
-    FluentIcon as FIF,
-)
-from qfluentwidgets import (
+    Action,
     InfoBar,
     InfoBarPosition,
+    RoundMenu,
     TransparentToolButton,
+)
+from qfluentwidgets import (
+    FluentIcon as FIF,
 )
 
 from mangatl.domain.project import Project
@@ -525,23 +526,20 @@ class MainWindow(QMainWindow):
         if menu is not None:
             menu.exec(global_pos)
 
-    def build_canvas_menu(self) -> QMenu | None:
-        """Menu for the current selection (separate for testability)."""
+    def build_canvas_menu(self) -> RoundMenu | None:
+        """Fluent menu for the current selection (separate for testability)."""
         if self.editor is None:
             return None
-        menu = QMenu(self)
-        count = len(self.selected_ids)
-        menu.addAction(f"删除所选（{count}）", self.delete_selected) if count else None
-        if count:
-            menu.addAction("重新识别所选", self.reocr_block)
-            menu.addAction("翻译所选", self.translate_block)
-        menu.addAction("排版本页", self.rerender)
-        menu.addSeparator()
-        menu.addAction("重新检测选区", self.redetect_region)
-        menu.addAction("重绘选区（重新擦除）", self.erase_region)
-        menu.addAction("恢复选区至原图", self.restore_selected_region)
-        menu.addSeparator()
-        menu.addAction("取消选择", self._cancel_selection)
+        menu = RoundMenu(parent=self)
+        for text, icon, slot in (
+            (f"删除所选（{len(self.selected_ids)}）", FIF.DELETE, self.delete_selected),
+            ("重新识别所选", FIF.SYNC, self.reocr_block),
+            ("翻译所选", FIF.GLOBE, self.translate_block),
+            ("重新检测选区", FIF.SEARCH, self.redetect_region),
+            ("重绘选区（重新擦除）", FIF.BRUSH, self.erase_region),
+            ("恢复选区至原图", FIF.RETURN, self.restore_selected_region),
+        ):
+            menu.addAction(Action(text, menu, icon=icon, triggered=slot))
         return menu
 
     def delete_selected(self) -> None:
