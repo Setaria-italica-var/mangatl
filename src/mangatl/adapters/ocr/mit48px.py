@@ -33,7 +33,7 @@ def split_lines(
     pixels: np.ndarray,
     bbox: tuple[int, int, int, int],
     vertical: bool,
-    min_gap: int = 3,
+    min_gap: int = 4,
 ) -> list[tuple[int, int, int, int]]:
     """Split a block into single lines by finding blank gaps between them.
 
@@ -56,27 +56,16 @@ def split_lines(
         return [(x1, y1, x2, y2)] if x2 > x1 and y2 > y1 else []
 
     region = pixels[y1:y2, x1:x2, :3].astype(np.float32).mean(axis=2)
-    ink = region < max(160.0, float(region.mean()) * 0.6)
-    profile = ink.any(axis=0) if vertical else ink.any(axis=1)
-    if not profile.any():
+    intervals = _ink_intervals(region < 120, vertical, max_span=0.6)
+    if not intervals:
         return [(x1, y1, x2, y2)]
 
-    spans: list[tuple[int, int]] = []
-    start = None
-    blank = 0
-    for index, filled in enumerate(profile):
-        if filled:
-            if start is None:
-                start = index
-            blank = 0
-            end = index
-        elif start is not None:
-            blank += 1
-            if blank >= min_gap:
-                spans.append((start, end + 1))
-                start = None
-    if start is not None:
-        spans.append((start, end + 1))
+    spans = [[intervals[0][0], intervals[0][1]]]
+    for begin, stop in intervals[1:]:
+        if begin - spans[-1][1] <= min_gap:
+            spans[-1][1] = max(spans[-1][1], stop)
+        else:
+            spans.append([begin, stop])
 
     lines: list[tuple[int, int, int, int]] = []
     for begin, stop in spans:
@@ -87,6 +76,35 @@ def split_lines(
         else:
             lines.append((x1, y1 + begin, x2, y1 + stop))
     return lines or [(x1, y1, x2, y2)]
+
+
+def _ink_intervals(
+    ink: np.ndarray, vertical: bool, max_span: float = 0.0
+) -> list[tuple[int, int]]:
+    """X (or Y) extents of connected glyph clusters, merged into lines.
+
+    Grouping components by their projection axis is much more robust than a
+    density threshold: an isolated speck cannot erase a whole column, and a thin
+    column is not mistaken for a gap.
+    """
+    from mangatl.adapters.imaging import label_components
+
+    _labels, stats = label_components(ink)
+    axis = ink.shape[1] if vertical else ink.shape[0]
+    limit = max_span * axis if max_span else axis
+    intervals: list[tuple[int, int]] = []
+    for item in stats:
+        if item.area < 8:
+            continue
+        x1, y1, x2, y2 = item.bbox
+        begin, stop = (x1, x2) if vertical else (y1, y2)
+        # A border line spans the whole block; keeping it would glue every column
+        # into one "line".
+        if stop - begin > limit:
+            continue
+        intervals.append((begin, stop))
+    intervals.sort()
+    return intervals
 
 
 def order_lines(
