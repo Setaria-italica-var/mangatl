@@ -1,21 +1,30 @@
-"""Batch runner: pick a page range, run stages, resume where the last run stopped.
+"""Batch runner: spawn ``python -m mangatl run`` and watch its event stream.
 
-The pipeline already records per-page stage flags, so "resume" is just a filter over
-those flags. The worker runs one page at a time so it can report progress and stop
-between pages instead of freezing the editor.
+Model work holds the GIL, so a worker *thread* freezes the editor. The pipeline runs
+in a child process instead and streams one JSON event per line; this panel turns the
+stream into a table, a progress bar, a log and a heartbeat.
+
+The watchdog separates "slow" from "stuck": no event for ``threshold`` seconds shows
+a bar with 终止进程 / 继续等待.
 """
 
 from __future__ import annotations
 
+import json
+import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QProcess, QTimer
 from PySide6.QtWidgets import (
+    QFileDialog,
     QHBoxLayout,
     QProgressBar,
     QTableWidgetItem,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -32,8 +41,7 @@ from qfluentwidgets import (
     FluentIcon as FIF,
 )
 
-from mangatl.core.config import RunConfig
-from mangatl.core.pipeline import PipelineService
+from mangatl.core.config import STAGE_ORDER
 from mangatl.domain.project import Page, Project
 
 STAGE_LABELS = {
@@ -50,14 +58,9 @@ STATUS_DONE = "完成"
 STATUS_SKIPPED = "已完成，跳过"
 STATUS_FAILED = "失败"
 
-
-@dataclass
-class PageResult:
-    name: str
-    status: str
-    blocks: int = 0
-    seconds: float = 0.0
-    message: str = ""
+STATE_OK = "ok"
+STATE_SLOW = "slow"
+STATE_STUCK = "stuck"
 
 
 def plan_pages(
@@ -68,11 +71,7 @@ def plan_pages(
     resume: bool,
     force: bool,
 ) -> tuple[list[str], list[str]]:
-    """Split the range into (to_run, to_skip).
-
-    ``resume`` skips pages whose selected stages are all done; ``force`` reruns
-    everything in range.
-    """
+    """Split the range into (to_run, to_skip). ``force`` reruns everything."""
     first = max(0, start - 1)
     last = min(len(pages), end)
     selected = pages[first:last]
@@ -88,79 +87,58 @@ def plan_pages(
     return run, skip
 
 
-class BatchWorker(QThread):
-    """Runs the pipeline page by page so the UI can show progress and stop."""
+def parse_event(line: str) -> dict[str, Any] | None:
+    """Parse one NDJSON line; ignore anything else (warnings, tracebacks)."""
+    text = line.strip()
+    if not text.startswith("{"):
+        return None
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) and "kind" in payload else None
 
-    pageStarted = Signal(str, int, int)  # name, index, total
-    pageFinished = Signal(str, str, int, float, str)  # name, status, blocks, seconds, msg
-    batchFinished = Signal(int, int, int)  # ok, failed, seconds*100
 
-    def __init__(
-        self,
-        service: PipelineService,
-        pages: list[str],
-        force: bool,
-        parent=None,
-    ) -> None:
-        super().__init__(parent)
-        self.service = service
-        self.pages = pages
-        self.force = force
-        self._stop = False
+def watchdog_state(idle_seconds: float, threshold: float) -> str:
+    """Classify silence: ok / slow (approaching) / stuck (over the threshold)."""
+    if threshold <= 0:
+        return STATE_OK
+    if idle_seconds >= threshold:
+        return STATE_STUCK
+    if idle_seconds >= threshold / 3:
+        return STATE_SLOW
+    return STATE_OK
 
-    def stop(self) -> None:
-        self._stop = True
 
-    def run(self) -> None:  # noqa: D401 - Qt entry point
-        started = time.time()
-        ok = failed = 0
-        for index, name in enumerate(self.pages, start=1):
-            if self._stop:
-                break
-            self.pageStarted.emit(name, index, len(self.pages))
-            began = time.time()
-            try:
-                summary = self.service.run(
-                    RunConfig(force=self.force), only={name}
-                )
-            except Exception as exc:  # noqa: BLE001 - report and continue
-                failed += 1
-                self.pageFinished.emit(name, STATUS_FAILED, 0, time.time() - began, str(exc))
-                continue
-            if summary.failed:
-                failed += 1
-                self.pageFinished.emit(
-                    name, STATUS_FAILED, 0, time.time() - began, "页面处理失败"
-                )
-            elif summary.skipped:
-                self.pageFinished.emit(
-                    name, STATUS_SKIPPED, 0, time.time() - began, "所有阶段已完成"
-                )
-            else:
-                ok += 1
-                self.pageFinished.emit(
-                    name,
-                    STATUS_DONE,
-                    summary.blocks,
-                    time.time() - began,
-                    f"块 {summary.blocks}",
-                )
-        self.batchFinished.emit(ok, failed, int((time.time() - started) * 100))
+@dataclass
+class Row:
+    name: str
+    status: str = STATUS_IDLE
 
 
 class BatchSheet(QWidget):
-    """Batch controls plus a live per-page table."""
+    """Range + stages + subprocess monitor."""
 
     def __init__(
         self,
         project: Project,
-        service_factory: Callable[[], PipelineService],
+        engines_provider: Callable[[], dict[str, str]] | None = None,
     ) -> None:
         super().__init__()
         self.project = project
-        self.service_factory = service_factory
-        self.worker: BatchWorker | None = None
+        self.engines_provider = engines_provider or (lambda: {})
+        self.process: QProcess | None = None
         self.failed: list[str] = []
+        self.finished: Callable[[], None] | None = None
+        self.rows: dict[str, Row] = {}
+        self.started_at = 0.0
+        self.last_event_at = 0.0
+        self.current_page = ""
+        self.current_stage = ""
+        self.planned = 0
+        self.started_pages = 0
+        self.ok = 0
+        self._stdout_buffer = b""
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 8, 10, 8)
@@ -184,8 +162,8 @@ class BatchSheet(QWidget):
         row_stages = QHBoxLayout()
         row_stages.addWidget(BodyLabel("阶段"))
         self.stage_boxes: dict[str, CheckBox] = {}
-        for key, label in STAGE_LABELS.items():
-            box = CheckBox(label)
+        for key in STAGE_ORDER:
+            box = CheckBox(STAGE_LABELS.get(key, key))
             box.setChecked(True)
             self.stage_boxes[key] = box
             row_stages.addWidget(box)
@@ -198,6 +176,12 @@ class BatchSheet(QWidget):
         row_options.addWidget(self.resume_box)
         self.force_box = CheckBox("强制重跑")
         row_options.addWidget(self.force_box)
+        row_options.addWidget(CaptionLabel("卡住阈值"))
+        self.threshold_box = SpinBox()
+        self.threshold_box.setRange(10, 900)
+        self.threshold_box.setValue(60)
+        self.threshold_box.setSuffix(" 秒")
+        row_options.addWidget(self.threshold_box)
         row_options.addStretch(1)
         layout.addLayout(row_options)
 
@@ -213,46 +197,86 @@ class BatchSheet(QWidget):
         self.btn_retry.setEnabled(False)
         self.btn_retry.clicked.connect(self.retry_failed)
         row_buttons.addWidget(self.btn_retry)
+        self.btn_export = PushButton(FIF.SAVE, "导出日志")
+        self.btn_export.clicked.connect(self.export_log)
+        row_buttons.addWidget(self.btn_export)
         row_buttons.addStretch(1)
-        self.status = CaptionLabel("就绪")
-        row_buttons.addWidget(self.status)
         layout.addLayout(row_buttons)
+
+        self.warning_bar = QWidget()
+        warn_layout = QHBoxLayout(self.warning_bar)
+        warn_layout.setContentsMargins(0, 0, 0, 0)
+        self.warning_label = CaptionLabel("")
+        warn_layout.addWidget(self.warning_label, 1)
+        self.btn_terminate = PushButton("终止进程")
+        self.btn_terminate.clicked.connect(self.terminate)
+        warn_layout.addWidget(self.btn_terminate)
+        self.btn_continue = PushButton("继续等待")
+        self.btn_continue.clicked.connect(self.continue_waiting)
+        warn_layout.addWidget(self.btn_continue)
+        self.warning_bar.setVisible(False)
+        layout.addWidget(self.warning_bar)
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
-        self.progress.setValue(0)
         layout.addWidget(self.progress)
+
+        self.heartbeat = CaptionLabel("等待开始")
+        layout.addWidget(self.heartbeat)
 
         self.table = TableWidget()
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["页", "状态", "块", "耗时"])
         self.table.horizontalHeader().setStretchLastSection(True)
-        layout.addWidget(self.table, 1)
+        layout.addWidget(self.table, 2)
 
+        self.log = QTextEdit()
+        self.log.setReadOnly(True)
+        self.log.setFixedHeight(96)
+        self.log.setPlaceholderText("运行日志（子进程 stderr + 事件）")
+        layout.addWidget(self.log)
+
+        self._watchdog = QTimer(self)
+        self._watchdog.setInterval(1000)
+        self._watchdog.timeout.connect(self._tick)
         self.set_project(project)
 
-    # -- state ------------------------------------------------------------
+    # -- project ----------------------------------------------------------
     def set_project(self, project: Project) -> None:
+        if self.is_running():
+            return
         self.project = project
         pages = list(project)
-        self.start_box.setRange(1, max(1, len(pages)))
-        self.end_box.setRange(1, max(1, len(pages)))
+        maximum = max(1, len(pages))
+        for box in (self.start_box, self.end_box):
+            box.setRange(1, maximum)
         self.start_box.setValue(1)
-        self.end_box.setValue(max(1, len(pages)))
+        self.end_box.setValue(maximum)
         self.failed = []
         self.btn_retry.setEnabled(False)
-        self._fill_table([page.name for page in pages])
+        self._fill([page.name for page in pages])
+        self.heartbeat.setText("等待开始")
 
-    def _fill_table(self, names: list[str]) -> None:
+    def _fill(self, names: list[str]) -> None:
+        self.rows = {name: Row(name) for name in names}
         self.table.setRowCount(len(names))
         for row, name in enumerate(names):
             self.table.setItem(row, 0, QTableWidgetItem(name))
             self.table.setItem(row, 1, QTableWidgetItem(STATUS_IDLE))
             self.table.setItem(row, 2, QTableWidgetItem("-"))
             self.table.setItem(row, 3, QTableWidgetItem("-"))
-        self.status.setText("就绪")
 
-    def _set_row(self, name: str, status: str, blocks: int = 0, seconds: float = 0.0) -> None:
+    # -- helpers ----------------------------------------------------------
+    def is_running(self) -> bool:
+        return (
+            self.process is not None
+            and self.process.state() != QProcess.ProcessState.NotRunning
+        )
+
+    def _set_row(
+        self, name: str, status: str, blocks: int = 0, seconds: float = 0.0
+    ) -> None:
+        self.rows[name] = Row(name, status)
         for row in range(self.table.rowCount()):
             item = self.table.item(row, 0)
             if item is not None and item.text() == name:
@@ -263,7 +287,15 @@ class BatchSheet(QWidget):
                     self.table.setItem(row, 3, QTableWidgetItem(f"{seconds:.1f}s"))
                 return
 
-    # -- controls ---------------------------------------------------------
+    def _append_log(self, text: str) -> None:
+        self.log.append(f"[{time.strftime('%H:%M:%S')}] {text}")
+        if self.log.document().blockCount() > 500:
+            cursor = self.log.textCursor()
+            cursor.movePosition(cursor.MoveOperation.Start)
+            cursor.select(cursor.SelectionType.BlockUnderCursor)
+            cursor.removeSelectedText()
+            cursor.deleteChar()
+
     def _toggle_all(self, state: int) -> None:
         enabled = not self.all_box.isChecked()
         self.start_box.setEnabled(enabled)
@@ -272,91 +304,224 @@ class BatchSheet(QWidget):
     def _selected_stages(self) -> tuple[str, ...]:
         return tuple(key for key, box in self.stage_boxes.items() if box.isChecked())
 
+    def _force(self) -> bool:
+        return self.force_box.isChecked() or not self.resume_box.isChecked()
+
+    # -- run control ------------------------------------------------------
     def start(self) -> None:
+        if self.is_running():
+            return
         stages = self._selected_stages()
         if not stages:
-            self.status.setText("至少选一个阶段")
+            self._append_log("至少选择一个阶段")
             return
         pages = list(self.project)
         start = 1 if self.all_box.isChecked() else self.start_box.value()
         end = len(pages) if self.all_box.isChecked() else self.end_box.value()
-        run, skip = plan_pages(
-            pages,
-            stages,
-            start,
-            end,
-            resume=self.resume_box.isChecked(),
-            force=self.force_box.isChecked(),
-        )
-        self._fill_table([page.name for page in pages])
-        for name in skip:
-            self._set_row(name, STATUS_SKIPPED)
-        if not run:
-            self.status.setText("范围内没有需要处理的页")
+        if not pages:
+            self._append_log("项目里没有页面")
             return
+        page_spec = f"1-{len(pages)}" if self.all_box.isChecked() else f"{start}-{end}"
+        self._fill([page.name for page in pages])
+        self._launch(page_spec, stages, force=self._force(), planned=end - start + 1)
 
+    def _launch(
+        self, page_spec: str, stages: tuple[str, ...], force: bool, planned: int
+    ) -> None:
+        engines = self.engines_provider()
+        command = [
+            sys.executable,
+            "-m",
+            "mangatl",
+            "run",
+            str(self.project.directory),
+            "--stages",
+            ",".join(stages),
+            "--pages",
+            page_spec,
+            "--events-json",
+            "--heartbeat",
+            "1",
+        ]
+        for key in ("detector", "ocr", "inpainter", "translator"):
+            value = engines.get(key)
+            if value:
+                command.extend([f"--{key}", value])
+        if force:
+            command.append("--force")
+
+        self.planned = max(1, planned)
+        self.started_pages = 0
+        self.ok = 0
         self.failed = []
+        self.started_at = time.monotonic()
+        self.last_event_at = self.started_at
+        self.current_page = ""
+        self.current_stage = ""
+        self._stdout_buffer = b""
+        self.progress.setValue(0)
+        self.warning_bar.setVisible(False)
         self.btn_start.setEnabled(False)
         self.btn_stop.setEnabled(True)
         self.btn_retry.setEnabled(False)
-        self.progress.setValue(0)
-        self.status.setText(f"准备处理 {len(run)} 页")
 
-        service = self.service_factory()
-        self.worker = BatchWorker(service, run, force=self.force_box.isChecked(), parent=self)
-        self.worker.pageStarted.connect(self._on_page_started)
-        self.worker.pageFinished.connect(self._on_page_finished)
-        self.worker.batchFinished.connect(self._on_batch_finished)
-        self.worker.start()
+        process = QProcess(self)
+        process.setProcessChannelMode(QProcess.ProcessChannelMode.SeparateChannels)
+        process.readyReadStandardOutput.connect(self._read_stdout)
+        process.readyReadStandardError.connect(self._read_stderr)
+        process.finished.connect(self._on_finished)
+        process.errorOccurred.connect(self._on_error)
+        self.process = process
+        self._append_log("启动子进程：" + " ".join(command[3:]))
+        process.start(command[0], command[1:])
+        self._watchdog.start()
 
     def stop(self) -> None:
-        if self.worker is not None:
-            self.worker.stop()
-            self.status.setText("正在停止 …")
+        if not self.is_running():
+            return
+        self._append_log("请求停止 …")
+        self.btn_stop.setEnabled(False)
+        assert self.process is not None
+        self.process.terminate()
+        QTimer.singleShot(15000, self._kill_if_running)
+
+    def terminate(self) -> None:
+        if self.process is not None and self.is_running():
+            self._append_log("强制终止子进程")
+            self.process.kill()
+        self.warning_bar.setVisible(False)
+
+    def continue_waiting(self) -> None:
+        self.warning_bar.setVisible(False)
+        self.last_event_at = time.monotonic()
+        self._append_log("用户选择继续等待")
+
+    def _kill_if_running(self) -> None:
+        if self.is_running():
+            self._append_log("停止超时，强制终止")
+            assert self.process is not None
+            self.process.kill()
 
     def retry_failed(self) -> None:
-        if not self.failed:
+        if not self.failed or self.is_running():
             return
-        pages = list(self.project)
-        existing = {page.name for page in pages}
-        run = [name for name in self.failed if name in existing]
-        if not run:
+        names = [page.name for page in self.project]
+        retry = [name for name in self.failed if name in set(names)]
+        if not retry:
             self.btn_retry.setEnabled(False)
             return
-        self.failed = []
-        self.btn_start.setEnabled(False)
-        self.btn_stop.setEnabled(True)
-        self.progress.setValue(0)
-        self.status.setText(f"重试 {len(run)} 页")
-        service = self.service_factory()
-        self.worker = BatchWorker(service, run, force=True, parent=self)
-        self.worker.pageStarted.connect(self._on_page_started)
-        self.worker.pageFinished.connect(self._on_page_finished)
-        self.worker.batchFinished.connect(self._on_batch_finished)
-        self.worker.start()
+        spec = ",".join(str(names.index(name) + 1) for name in retry)
+        self._append_log(f"重试失败页：{', '.join(retry)}")
+        self._launch(spec, self._selected_stages(), force=True, planned=len(retry))
 
-    # -- worker signals ---------------------------------------------------
-    def _on_page_started(self, name: str, index: int, total: int) -> None:
-        self.progress.setValue(int((index - 1) * 100 / max(1, total)))
-        self._set_row(name, STATUS_RUNNING)
-        self.status.setText(f"{index}/{total} · {name}")
+    def export_log(self) -> None:
+        target, _ = QFileDialog.getSaveFileName(
+            self, "导出日志", "batch.log", "Log (*.log *.txt)"
+        )
+        if target:
+            Path(target).write_text(self.log.toPlainText(), encoding="utf-8")
+            self._append_log(f"日志已导出到 {target}")
 
-    def _on_page_finished(
-        self, name: str, status: str, blocks: int, seconds: float, message: str
-    ) -> None:
-        self._set_row(name, status, blocks, seconds)
-        if status == STATUS_FAILED:
-            self.failed.append(name)
-        self.status.setText(message or status)
+    # -- process signals --------------------------------------------------
+    def _read_stdout(self) -> None:
+        assert self.process is not None
+        self._stdout_buffer += bytes(self.process.readAllStandardOutput())
+        *lines, self._stdout_buffer = self._stdout_buffer.split(b"\n")
+        for raw in lines:
+            event = parse_event(raw.decode("utf-8", "replace"))
+            if event is not None:
+                self._handle_event(event)
 
-    def _on_batch_finished(self, ok: int, failed: int, seconds_centi: int) -> None:
-        self.worker = None
+    def _read_stderr(self) -> None:
+        assert self.process is not None
+        text = bytes(self.process.readAllStandardError()).decode("utf-8", "replace")
+        for line in text.splitlines():
+            if line.strip():
+                self._append_log(line.strip())
+
+    def _handle_event(self, event: dict[str, Any]) -> None:
+        kind = str(event.get("kind", ""))
+        page = str(event.get("page", ""))
+        detail = str(event.get("detail", ""))
+        self.last_event_at = time.monotonic()
+        if kind == "tick":
+            self.current_stage = detail or self.current_stage
+            return
+        if page:
+            self.current_page = page
+        if kind == "page-start":
+            self.current_stage = ""
+            self.started_pages = min(self.planned, self.started_pages + 1)
+            self.progress.setValue(
+                int(self.started_pages * 100 / max(1, self.planned))
+            )
+            self._set_row(page, STATUS_RUNNING)
+            self.heartbeat.setText(f"第 {self.started_pages}/{self.planned} 页 · {page}")
+        elif kind == "stage-start":
+            self.current_stage = detail
+            label = STAGE_LABELS.get(detail, detail)
+            self.heartbeat.setText(f"{page} · 阶段 {label}")
+        elif kind == "page-done":
+            blocks = 0
+            for token in detail.split():
+                if token.isdigit():
+                    blocks = int(token)
+                    break
+            self.ok += 1
+            self._set_row(page, STATUS_DONE, blocks)
+            self._append_log(f"{page} 完成（{detail or 'ok'}）")
+        elif kind == "page-skipped":
+            self.started_pages = min(self.planned, self.started_pages + 1)
+            self.progress.setValue(
+                int(self.started_pages * 100 / max(1, self.planned))
+            )
+            self._set_row(page, STATUS_SKIPPED)
+        elif kind == "page-failed":
+            self.failed.append(page)
+            self._set_row(page, STATUS_FAILED)
+            self._append_log(f"{page} 失败：{detail}")
+        elif kind == "summary":
+            self._append_log(
+                f"汇总：成功 {event.get('ok', 0)}，失败 {event.get('failed', 0)}，"
+                f"跳过 {event.get('skipped', 0)}"
+            )
+
+    def _on_error(self, error) -> None:
+        self._append_log(f"子进程错误：{error}")
+
+    def _on_finished(self, exit_code: int, status) -> None:
+        self._watchdog.stop()
+        self.process = None
         self.btn_start.setEnabled(True)
         self.btn_stop.setEnabled(False)
         self.btn_retry.setEnabled(bool(self.failed))
+        self.warning_bar.setVisible(False)
+        seconds = max(0.0, time.monotonic() - self.started_at)
         self.progress.setValue(100)
-        self.status.setText(
-            f"完成 {ok} 页，失败 {failed} 页，用时 {seconds_centi / 100:.1f}s"
+        self.heartbeat.setText(
+            f"结束：成功 {self.ok} 页，失败 {len(self.failed)} 页，"
+            f"用时 {seconds:.1f}s（退出码 {exit_code}）"
         )
+        self._append_log(self.heartbeat.text())
         if callable(self.finished):
             self.finished()
+
+    # -- watchdog ---------------------------------------------------------
+    def _tick(self) -> None:
+        if not self.is_running():
+            return
+        idle = time.monotonic() - self.last_event_at
+        threshold = float(self.threshold_box.value())
+        state = watchdog_state(idle, threshold)
+        stage = STAGE_LABELS.get(self.current_stage, self.current_stage or "准备中")
+        self.heartbeat.setText(
+            f"心跳：{idle:.0f}s 前 · {self.current_page or '-'} · {stage} · "
+            f"已用 {time.monotonic() - self.started_at:.0f}s"
+        )
+        if state == STATE_STUCK:
+            self.warning_label.setText(
+                f"{idle:.0f} 秒没有新进展，可能卡住（阈值 {threshold:.0f}s）"
+            )
+            self.warning_bar.setVisible(True)
+        elif state == STATE_OK:
+            self.warning_bar.setVisible(False)

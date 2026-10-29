@@ -295,7 +295,7 @@ class MainWindow(QMainWindow):
 
     # -- right module rail ------------------------------------------------
     def _build_module_panel(self) -> None:
-        self.sheets = build_sheets(self.project, self._service_factory)
+        self.sheets = build_sheets(self.project, self._engines)
         dock = QDockWidget("模块", self)
         dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
         container = QWidget()
@@ -347,12 +347,6 @@ class MainWindow(QMainWindow):
         self.rail_current = "editor"
         self.rail_buttons["editor"].setChecked(True)
         self.stack.setCurrentWidget(self.sheets["editor"])
-
-    def _service_factory(self):
-        """Build a pipeline service with the engines chosen in the bottom bar."""
-        from mangatl.gui.pipeline_bridge import build_default_service
-
-        return build_default_service(self.project, **self._engines())
 
     def show_module(self, key: str) -> None:
         """Switch the right panel to a module."""

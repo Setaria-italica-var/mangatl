@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import sys
+import threading
 import time
 from collections.abc import Sequence
 from dataclasses import asdict
@@ -118,6 +119,22 @@ def _build_parser() -> argparse.ArgumentParser:
         "--stages",
         default=",".join(STAGE_ORDER),
         help=f"comma separated subset of: {', '.join(STAGE_ORDER)}",
+    )
+    run.add_argument(
+        "--pages",
+        default="",
+        help="page range like 1-20 or a list like 1,3,5-8 (default: every page)",
+    )
+    run.add_argument(
+        "--events-json",
+        action="store_true",
+        help="stream progress events as one JSON object per line on stdout",
+    )
+    run.add_argument(
+        "--heartbeat",
+        type=float,
+        default=3.0,
+        help="seconds between tick events in --events-json mode",
     )
     run.add_argument("--detector", default="grid")
     run.add_argument("--ocr", default="echo")
@@ -605,6 +622,91 @@ def _configure_stdio() -> None:
             continue
 
 
+
+def parse_pages(spec: str, names: list[str]) -> set[str] | None:
+    """Turn ``1-5,8`` into a set of page names; empty means "all pages"."""
+    text = spec.strip()
+    if not text:
+        return None
+    wanted: set[str] = set()
+    for part in text.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            first, _, last = part.partition("-")
+            try:
+                start, end = int(first), int(last)
+            except ValueError:
+                continue
+            for index in range(start, end + 1):
+                if 1 <= index <= len(names):
+                    wanted.add(names[index - 1])
+        else:
+            try:
+                index = int(part)
+            except ValueError:
+                continue
+            if 1 <= index <= len(names):
+                wanted.add(names[index - 1])
+    return wanted
+
+
+class _EventStream:
+    """Writes NDJSON progress plus a heartbeat tick between long operations."""
+
+    def __init__(self, config, heartbeat: float = 3.0) -> None:
+        self.config = config
+        self.heartbeat = max(0.5, heartbeat)
+        self.started = time.time()
+        self.last = self.started
+        self.last_kind = "start"
+        self.last_page = ""
+        self.last_detail = ""
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        self._thread = threading.Thread(target=self._beat, daemon=True)
+        self._thread.start()
+
+    def handler(self, event) -> None:
+        self.last = time.time()
+        self.last_kind = event.kind
+        self.last_page = getattr(event, "page", "") or self.last_page
+        self.last_detail = getattr(event, "detail", "") or self.last_detail
+        _emit_json(
+            {
+                "kind": event.kind,
+                "page": getattr(event, "page", ""),
+                "detail": getattr(event, "detail", ""),
+                "ts": round(self.last, 3),
+                "elapsed": round(self.last - self.started, 2),
+            }
+        )
+
+    def _beat(self) -> None:
+        while not self._stop.wait(self.heartbeat):
+            now = time.time()
+            _emit_json(
+                {
+                    "kind": "tick",
+                    "page": self.last_page,
+                    "stage": self.last_detail or self.last_kind,
+                    "ts": round(now, 3),
+                    "elapsed": round(now - self.started, 2),
+                    "idle": round(now - self.last, 2),
+                }
+            )
+
+    def stop(self) -> None:
+        self._stop.set()
+
+
+def _emit_json(payload: dict) -> None:
+    print(json.dumps(payload, ensure_ascii=False), flush=True)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and return a process exit code."""
     _configure_stdio()
@@ -662,7 +764,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if config.bubbles in ("auto", "model"):
         model_path = Path(config.bubble_model)
         backend = "model" if model_path.is_file() else "heuristic (model missing)"
-        print(f"bubbles: {backend}: {model_path}")
+        print(
+            f"bubbles: {backend}: {model_path}",
+            file=sys.stderr if args.events_json else sys.stdout,
+        )
     enabled = config.enabled
     try:
         # Only build the adapters whose stage is selected: constructing an OCR
@@ -698,6 +803,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 2
     project.scan()
+    stream = _EventStream(config, heartbeat=args.heartbeat) if args.events_json else None
     service = PipelineService(
         project,
         detector,
@@ -707,10 +813,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         bubble_detector=bubble_detector,
         ocr_judge=ocr_judge,
         vision_ocr=vision_ocr,
-        on_event=_print_event,
+        on_event=stream.handler if stream is not None else _print_event,
     )
-    summary = service.run(config)
-    print(json.dumps(asdict(summary), ensure_ascii=False))
+    only = parse_pages(args.pages, [page.name for page in project])
+    if stream is not None:
+        stream.start()
+    try:
+        summary = service.run(config, only=only)
+    finally:
+        if stream is not None:
+            stream.stop()
+    if args.events_json:
+        _emit_json({"kind": "summary", **asdict(summary)})
+    else:
+        print(json.dumps(asdict(summary), ensure_ascii=False))
     if "render" in enabled and config.translator == "echo":
         print(
             "warning: translator=echo copies the source text, so the rendered pages "

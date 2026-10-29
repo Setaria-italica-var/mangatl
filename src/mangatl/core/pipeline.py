@@ -31,6 +31,7 @@ from mangatl.domain.quality import looks_garbled
 from mangatl.domain.roles import BlockRole, RoleConfig, classify, is_translatable
 from mangatl.render.renderer import PageRenderer
 
+EVENT_PAGE_START = "page-start"
 EVENT_STAGE_START = "stage-start"
 EVENT_STAGE_DONE = "stage-done"
 EVENT_PAGE_DONE = "page-done"
@@ -113,6 +114,7 @@ class PipelineService:
     def _run_page(self, page: Page, config: RunConfig) -> bool:
         """Run the pending stages for one page; return whether anything ran."""
         image_path = self.project.directory / page.name
+        self._emit(EVENT_PAGE_START, page.name)
         ran_any = False
         for stage in config.stages:
             if page.is_done(stage) and not config.force:

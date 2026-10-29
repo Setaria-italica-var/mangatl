@@ -513,7 +513,7 @@ class SettingsSheet(QWidget):
         layout.addStretch(1)
 
 
-def build_sheets(project: Project, service_factory=None) -> dict[str, QWidget]:
+def build_sheets(project: Project, engines_provider=None) -> dict[str, QWidget]:
     """Create the standard module panels."""
     sheets: dict[str, QWidget] = {
         "editor": EditorSheet(),
@@ -522,8 +522,8 @@ def build_sheets(project: Project, service_factory=None) -> dict[str, QWidget]:
         "run": RunSheet(),
         "settings": SettingsSheet(),
     }
-    if service_factory is not None:
+    if engines_provider is not None:
         from mangatl.gui.batch import BatchSheet
 
-        sheets["batch"] = BatchSheet(project, service_factory)
+        sheets["batch"] = BatchSheet(project, engines_provider)
     return sheets
