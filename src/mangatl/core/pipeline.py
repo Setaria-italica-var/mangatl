@@ -115,12 +115,16 @@ class PipelineService:
                     page.blocks, page.text_mask = self.detector.detect_with_mask(image_path)
                 else:
                     page.blocks = self.detector.detect(image_path)
+                ensure_mask(page, image_path, self.detector)
+                annotate_bubbles(
+                    page, image_path, config.erase_scope, self.bubble_detector
+                )
+                if config.merge_fragments:
+                    page.blocks = merge_blocks(page.blocks)
             elif stage == "ocr":
                 if not page.blocks:
                     raise ValueError(f"{page.name}: OCR needs blocks from the detect stage")
                 page.blocks = self.ocr.recognize(image_path, page.blocks)
-                if config.merge_fragments:
-                    page.blocks = merge_blocks(page.blocks)
                 assign_roles(page, config)
             elif stage == "translate":
                 ensure_mask(page, image_path, self.detector)

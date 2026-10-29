@@ -47,6 +47,7 @@ class CtdConfig:
     threshold: float = 0.5
     min_area: int = 24
     merge_gap: int = 14
+    merge_lines: bool = False
     label_max_side: int = 256
 
 
@@ -174,82 +175,124 @@ def merge_boxes(
     return merged
 
 
+def _rect_distance(
+    first: tuple[int, int, int, int], second: tuple[int, int, int, int]
+) -> float:
+    """Shortest distance between two axis-aligned boxes (0 when they touch)."""
+    dx = max(first[0] - second[2], second[0] - first[2], 0)
+    dy = max(first[1] - second[3], second[1] - first[3], 0)
+    return float((dx * dx + dy * dy) ** 0.5)
+
+
+def _char_size(box: tuple[int, int, int, int]) -> float:
+    """Glyph size of a text line: its shorter side (BT's ``font_size``)."""
+    return float(max(1, min(box[2] - box[0], box[3] - box[1])))
+
+
+def can_merge(
+    first: tuple[int, int, int, int],
+    second: tuple[int, int, int, int],
+    ratio: float = 1.9,
+) -> bool:
+    """BT's rule for two text lines belonging to one block.
+
+    Ported from ``textlines_merge.quadrilateral_can_merge_region`` with the
+    caller's parameters (``font_size_ratio_tol=2``, ``char_gap_tolerance=1``,
+    ``char_gap_tolerance2=3``). The unit is a character, not a line, which is what
+    keeps a sound effect from being glued to the bubble next to it.
+
+    >>> can_merge((0, 0, 100, 20), (0, 24, 100, 44))
+    True
+    >>> can_merge((0, 0, 100, 20), (0, 40, 100, 300))
+    False
+    """
+    char_size = min(_char_size(first), _char_size(second))
+    if max(_char_size(first), _char_size(second)) / char_size > 2.0:
+        return False
+
+    width_a, height_a = first[2] - first[0], first[3] - first[1]
+    width_b, height_b = second[2] - second[0], second[3] - second[1]
+    aspect_a = width_a / max(1, height_a)
+    aspect_b = width_b / max(1, height_b)
+    if aspect_a > ratio and aspect_b < 1.0 / ratio:
+        return False
+    if aspect_b > ratio and aspect_a < 1.0 / ratio:
+        return False
+
+    distance = _rect_distance(first, second)
+    if distance > 2.0 * char_size:
+        return False
+    if distance >= char_size:
+        return False
+
+    centre_a = ((first[0] + first[2]) / 2, (first[1] + first[3]) / 2)
+    centre_b = ((second[0] + second[2]) / 2, (second[1] + second[3]) / 2)
+    if abs(centre_a[0] - centre_b[0]) < 3:
+        return True
+
+    if aspect_a > ratio or aspect_b > ratio:  # horizontal lines
+        return (
+            abs(first[0] - second[0]) < 3 * char_size
+            or abs(first[2] - second[2]) < 3 * char_size
+        )
+    if aspect_a < 1.0 / ratio or aspect_b < 1.0 / ratio:  # vertical columns
+        return (
+            abs(first[1] - second[1]) < 3 * char_size
+            or abs(first[3] - second[3]) < 3 * char_size
+        )
+    return False
+
+
 def merge_lines(
     boxes: Sequence[tuple[int, int, int, int]],
     page_size: tuple[int, int] | None = None,
     max_area_ratio: float = 0.12,
 ) -> list[tuple[int, int, int, int]]:
-    """Merge lines that belong to one block, never across a size jump.
+    """Group text lines into blocks using BT's merge predicate.
 
-    ComicTextDetector returns text *lines*. Lines of one speech bubble share a
-    glyph height and sit within about one line-height of each other. A big sound
-    effect next to a bubble does not: gluing the two produced a block that
-    covered both, the OCR read across them and produced noise, and the bubble was
-    erased without replacement.
-
-    So a merge needs three things at once: overlapping span, a gap no larger than
-    a line, and comparable sizes.
-
-    >>> merge_lines([(0, 0, 40, 20), (0, 24, 40, 44)])
-    [(0, 0, 40, 44)]
-    >>> merge_lines([(0, 0, 40, 20), (0, 30, 40, 200)])
-    [(0, 0, 40, 20), (0, 30, 40, 200)]
+    Connected components on the merge graph, then a guard against pathological
+    chains (an area cap relative to the page).
     """
     items = [tuple(box) for box in boxes]
     if not items:
         return []
 
-    def similar(first: tuple[int, int, int, int], second: tuple[int, int, int, int]) -> bool:
-        # Only the glyph height must match: lines of one bubble have very different
-        # widths (a lone と next to a full line), but a sound effect is much taller.
-        first_height = max(1, first[3] - first[1])
-        second_height = max(1, second[3] - second[1])
-        return 0.45 <= first_height / second_height <= 2.2
+    parent = list(range(len(items)))
 
-    changed = True
-    while changed:
-        changed = False
-        result: list[tuple[int, int, int, int]] = []
-        for box in items:
-            for index, other in enumerate(result):
-                if not similar(box, other):
-                    continue
-                overlap_x = min(box[2], other[2]) - max(box[0], other[0])
-                overlap_y = min(box[3], other[3]) - max(box[1], other[1])
-                gap_x = max(box[0], other[0]) - min(box[2], other[2])
-                gap_y = max(box[1], other[1]) - min(box[3], other[3])
-                line_height = min(box[3] - box[1], other[3] - other[1])
-                line_width = min(box[2] - box[0], other[2] - other[0])
-                stacked = overlap_x > 0.3 * line_width and gap_y <= line_height
-                side_by_side = overlap_y > 0.3 * line_height and gap_x <= 0.7 * line_width
-                if stacked or side_by_side:
-                    union = (
-                        min(box[0], other[0]),
-                        min(box[1], other[1]),
-                        max(box[2], other[2]),
-                        max(box[3], other[3]),
-                    )
-                    union_width = union[2] - union[0]
-                    union_height = union[3] - union[1]
-                    # Cap the growth: chained merges used to swallow a whole page.
-                    tallest = max(box[3] - box[1], other[3] - other[1])
-                    widest = max(box[2] - box[0], other[2] - other[0])
-                    if union_width >= union_height:
-                        allowed = union_height <= 3.0 * tallest
-                    else:
-                        allowed = union_width <= 3.0 * widest
-                    if allowed and page_size is not None:
-                        page_area = max(1, page_size[0] * page_size[1])
-                        allowed = union_width * union_height <= max_area_ratio * page_area
-                    if not allowed:
-                        continue
-                    result[index] = union
-                    changed = True
-                    break
-            else:
-                result.append(box)
-        items = result
-    return items
+    def find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        root_left, root_right = find(left), find(right)
+        if root_left != root_right:
+            parent[root_right] = root_left
+
+    for i in range(len(items)):
+        for j in range(i + 1, len(items)):
+            if can_merge(items[i], items[j]):
+                union(i, j)
+
+    groups: dict[int, list[tuple[int, int, int, int]]] = {}
+    for index, item in enumerate(items):
+        groups.setdefault(find(index), []).append(item)
+
+    page_area = page_size[0] * page_size[1] if page_size else None
+    merged: list[tuple[int, int, int, int]] = []
+    for members in groups.values():
+        box = (
+            min(item[0] for item in members),
+            min(item[1] for item in members),
+            max(item[2] for item in members),
+            max(item[3] for item in members),
+        )
+        if page_area and (box[2] - box[0]) * (box[3] - box[1]) > max_area_ratio * page_area:
+            merged.extend(members)  # too big to be one block: keep the lines
+            continue
+        merged.append(box)
+    return merged
 
 
 def _ink_runs(profile: np.ndarray, gap: int = 3) -> int:
@@ -357,7 +400,8 @@ class CtdDetector:
             )
             for x1, y1, x2, y2 in small_boxes
         ]
-        boxes = merge_lines(boxes, page_size=(width, height))
+        if self.config.merge_lines:
+            boxes = merge_lines(boxes, page_size=(width, height))
         return self._to_blocks(boxes, width, height, probability), probability
 
     @staticmethod

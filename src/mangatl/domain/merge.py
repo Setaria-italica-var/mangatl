@@ -11,6 +11,7 @@ bubble. Anything ambiguous is left alone.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Sequence
 
 from mangatl.domain.block import TextBlock
@@ -96,9 +97,9 @@ def merge_blocks(blocks: Sequence[TextBlock], max_gap: int = MAX_GAP) -> list[Te
             same = _same_bubble(first, second)
             if same is False:
                 continue
-            if _gap(first.bbox, second.bbox, first.vertical) > max_gap:
-                continue
-            if _span_overlap(first.bbox, second.bbox, first.vertical) < MIN_SPAN_OVERLAP:
+            from mangatl.adapters.detectors.ctd import can_merge
+
+            if not can_merge(first.bbox, second.bbox):
                 continue
             union(i, j)
 
@@ -112,6 +113,8 @@ def merge_blocks(blocks: Sequence[TextBlock], max_gap: int = MAX_GAP) -> list[Te
         box = ordered[0].bbox
         for member in ordered[1:]:
             box = _union(box, member.bbox)
+        directions = Counter(member.vertical for member in ordered)
+        vertical = directions.most_common(1)[0][0]
         text = "".join(member.text for member in ordered).strip()
         merged.append(
             TextBlock(
@@ -120,7 +123,7 @@ def merge_blocks(blocks: Sequence[TextBlock], max_gap: int = MAX_GAP) -> list[Te
                 text=text,
                 translation="".join(member.translation for member in ordered).strip(),
                 confidence=min(member.confidence for member in ordered),
-                vertical=ordered[0].vertical,
+                vertical=vertical,
                 needs_review=any(member.needs_review for member in ordered),
                 role=ordered[0].role,
                 role_reasons=ordered[0].role_reasons,
