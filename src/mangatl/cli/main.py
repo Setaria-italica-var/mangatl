@@ -108,6 +108,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument("--detector", default="grid")
     run.add_argument("--ocr", default="echo")
+    run.add_argument(
+        "--ocr-lang",
+        default="japan",
+        help="recognition language for RapidOCR (japan, ch, en, korean, ...)",
+    )
     run.add_argument("--inpainter", default="copy")
     default_translator = "openai" if os.environ.get("MANGATL_API_KEY") else "echo"
     run.add_argument("--translator", default=default_translator)

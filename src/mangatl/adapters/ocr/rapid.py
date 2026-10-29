@@ -18,6 +18,7 @@ overlap, which is faster and more stable than cropping each block.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -64,7 +65,7 @@ class RapidOcrAdapter:
 
     name = "rapidocr"
 
-    def __init__(self, **engine_kwargs: Any) -> None:
+    def __init__(self, lang: str | None = None, **engine_kwargs: Any) -> None:
         try:
             from rapidocr import RapidOCR  # 2.x
         except ImportError:
@@ -78,6 +79,15 @@ class RapidOcrAdapter:
             self._legacy = True
         else:
             self._legacy = False
+        language = lang or os.environ.get("MANGATL_OCR_LANG", "japan")
+        if not self._legacy and language:
+            # rapidocr 2.x selects the recognition model through a params mapping;
+            # the default is Chinese, which cannot read kana.
+            params = dict(engine_kwargs.pop("params", {}) or {})
+            params.setdefault("Rec.lang_type", language)
+            params.setdefault("Rec.ocr_version", "PP-OCRv4")
+            params.setdefault("Rec.model_type", "mobile")
+            engine_kwargs["params"] = params
         self._engine = RapidOCR(**engine_kwargs)
 
     # -- engine output normalisation -------------------------------------
