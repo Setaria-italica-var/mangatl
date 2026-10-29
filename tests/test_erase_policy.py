@@ -14,7 +14,13 @@ def make_block(**kwargs) -> TextBlock:
 
 
 def test_dialogue_is_erased() -> None:
-    assert should_erase(make_block(role="dialogue", mask_coverage=0.4), RunConfig())
+    item = make_block(role="dialogue", mask_coverage=0.4, translation="你好")
+    assert should_erase(item, RunConfig())
+
+
+def test_block_without_translation_is_not_erased() -> None:
+    item = make_block(role="dialogue", mask_coverage=0.4, translation="")
+    assert not should_erase(item, RunConfig())
 
 
 def test_texture_is_kept() -> None:
@@ -26,7 +32,7 @@ def test_symbol_is_erased() -> None:
 
 
 def test_sfx_follows_policy() -> None:
-    item = make_block(role="sfx", mask_coverage=0.4)
+    item = make_block(role="sfx", mask_coverage=0.4, translation="咚！")
 
     assert should_erase(item, RunConfig(sfx_policy="erase"))
     assert not should_erase(item, RunConfig(sfx_policy="keep"))
@@ -38,7 +44,13 @@ def test_empty_box_is_skipped_even_if_dialogue() -> None:
 
 
 def test_oversized_block_erases_mask_only() -> None:
-    item = make_block(role="dialogue", mask_coverage=0.05, area_fraction=0.8, bbox_erase=False)
+    item = make_block(
+        role="dialogue",
+        mask_coverage=0.05,
+        area_fraction=0.8,
+        bbox_erase=False,
+        translation="你好",
+    )
 
     assert should_erase(item, RunConfig())
     assert not item.bbox_erase  # the artwork underneath must survive
@@ -60,7 +72,10 @@ def test_sfx_inside_a_bubble_is_translated() -> None:
     from mangatl.core.pipeline import assign_roles, should_translate
     from mangatl.domain.project import Page
 
-    page = Page(name="p", blocks=[make_block(text="ドドド", role="sfx", in_bubble=True)])
+    page = Page(
+        name="p",
+        blocks=[make_block(text="ドドド", role="sfx", in_bubble=True, translation="咚！")],
+    )
     assign_roles(page, RunConfig())
 
     assert page.blocks[0].role == "sfx"
