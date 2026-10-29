@@ -117,3 +117,21 @@ def test_model_failure_keeps_the_page_alive(
 
     assert result[0].text == ""
     assert result[0].confidence == 0.0
+
+
+def test_local_snapshot_resolves_cached_directory(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("HF_HOME", str(tmp_path))
+    snapshot = tmp_path / "hub" / "models--kha-white--manga-ocr-base" / "snapshots" / "abc"
+    snapshot.mkdir(parents=True)
+
+    from mangatl.adapters.ocr.manga_ocr import local_snapshot
+
+    assert local_snapshot() == str(snapshot)
+
+
+def test_local_snapshot_returns_none_without_cache(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("HF_HOME", str(tmp_path))
+
+    from mangatl.adapters.ocr.manga_ocr import local_snapshot
+
+    assert local_snapshot() is None

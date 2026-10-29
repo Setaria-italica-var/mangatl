@@ -242,6 +242,7 @@ def _force_offline() -> None:
     The variables must be set before those libraries are imported, which is why
     this runs at the very start of ``main``.
     """
+    os.environ["MANGATL_OFFLINE"] = "1"
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
     os.environ.setdefault("HF_HOME", str(Path("data/hf").resolve()))

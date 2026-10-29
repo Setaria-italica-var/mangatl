@@ -25,6 +25,24 @@ DEFAULT_MODEL = "kha-white/manga-ocr-base"
 NEUTRAL_CONFIDENCE = 0.6
 
 
+def local_snapshot(model_name: str = DEFAULT_MODEL) -> str | None:
+    """Resolve a cached HuggingFace snapshot directory for ``model_name``.
+
+    Passing a local directory to ``from_pretrained`` skips the hub entirely, which
+    is the only reliable way to stay offline: the library still issues HEAD
+    requests when it is given a repo id, even with ``HF_HUB_OFFLINE`` set.
+    """
+    home = os.environ.get("HF_HOME") or os.environ.get("HUGGINGFACE_HUB_CACHE")
+    root = Path(home) if home else Path.home() / ".cache" / "huggingface"
+    hub = root / "hub" if (root / "hub").is_dir() else root
+    slug = "models--" + model_name.replace("/", "--")
+    snapshots = hub / slug / "snapshots"
+    if not snapshots.is_dir():
+        return None
+    candidates = sorted((item for item in snapshots.iterdir() if item.is_dir()), reverse=True)
+    return str(candidates[0]) if candidates else None
+
+
 def build_model(factory, model_name: str, device: str):
     """Instantiate ``MangaOcr`` whatever its constructor accepts.
 
@@ -57,7 +75,9 @@ class MangaOcrAdapter:
                 "downloads weights on first use; set HF_ENDPOINT=https://hf-mirror.com"
             ) from exc
         self.model_name = model_name
-        self._model = build_model(MangaOcr, model_name, device)
+        offline = os.environ.get("MANGATL_OFFLINE") == "1"
+        resolved = local_snapshot(model_name) if offline else None
+        self._model = build_model(MangaOcr, resolved or model_name, device)
 
     def recognize(self, image_path: Path, blocks: Sequence[TextBlock]) -> list[TextBlock]:
         """Fill ``text`` for every block; vertical blocks are rotated first."""
