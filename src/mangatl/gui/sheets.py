@@ -426,14 +426,37 @@ class SearchSheet(QWidget):
 
 
 class SettingsSheet(QWidget):
-    """Accent colour and environment overview."""
+    """Accent colour, translation endpoint and environment overview."""
 
     accentChanged = Signal(str)
+    apiConfigured = Signal()
 
     def __init__(self) -> None:
         super().__init__()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 8, 10, 8)
+
+        layout.addWidget(BodyLabel("翻译接口（仅本次运行有效）"))
+        self.api_key = LineEdit()
+        self.api_key.setPlaceholderText("MANGATL_API_KEY，例如 sk-…")
+        self.api_key.setEchoMode(LineEdit.EchoMode.Password)
+        layout.addWidget(self.api_key)
+        self.base_url = LineEdit()
+        self.base_url.setPlaceholderText("https://api.deepseek.com/v1")
+        layout.addWidget(self.base_url)
+        self.model_name = LineEdit()
+        self.model_name.setPlaceholderText("deepseek-chat")
+        layout.addWidget(self.model_name)
+        api_row = QHBoxLayout()
+        self.btn_api = PushButton("应用接口设置")
+        self.btn_api.clicked.connect(self._apply_api)
+        api_row.addWidget(self.btn_api)
+        self.api_status = CaptionLabel("")
+        api_row.addWidget(self.api_status, 1)
+        layout.addLayout(api_row)
+        layout.addWidget(
+            CaptionLabel("永久生效请设置系统环境变量；这里只写入当前进程。")
+        )
 
         layout.addWidget(BodyLabel("强调色"))
         row = QHBoxLayout()
@@ -477,6 +500,26 @@ class SearchDialog(QDialog):
 
     def refresh(self) -> None:
         self.sheet.refresh()
+
+
+def _settings_apply_api(self) -> None:
+    import os
+
+    key = self.api_key.text().strip()
+    if not key:
+        self.api_status.setText("请先填写 Key")
+        return
+    os.environ["MANGATL_API_KEY"] = key
+    if self.base_url.text().strip():
+        os.environ["MANGATL_BASE_URL"] = self.base_url.text().strip()
+    if self.model_name.text().strip():
+        os.environ["MANGATL_MODEL"] = self.model_name.text().strip()
+    self.api_status.setText("已写入当前进程")
+    self.apiConfigured.emit()
+
+
+# Attach the handler defined above (kept out of the class body to keep it readable).
+SettingsSheet._apply_api = _settings_apply_api
 
 
 def build_sheets(project: Project, engines_provider=None) -> dict[str, QWidget]:

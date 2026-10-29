@@ -760,6 +760,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         force_blocks=tuple(filter(None, (s.strip() for s in args.erase_blocks.split(",")))),
     )
 
+    if config.translator == "openai" and not os.environ.get("MANGATL_API_KEY"):
+        print(
+            "error: MANGATL_API_KEY is not set, so translator=openai cannot work.\n"
+            "hint: set the key, or run with --translator echo for a dry run.",
+            file=sys.stderr,
+        )
+        return 2
+
     detectors, ocrs, inpainters, translators = default_registries()
     if config.bubbles in ("auto", "model"):
         model_path = Path(config.bubble_model)

@@ -11,6 +11,7 @@ a bar with 终止进程 / 继续等待.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 from collections.abc import Callable
@@ -394,6 +395,15 @@ class BatchSheet(QWidget):
         self, page_spec: str, stages: tuple[str, ...], force: bool, planned: int
     ) -> None:
         engines = self.engines_provider()
+        if engines.get("translator") == "openai" and not os.environ.get(
+            "MANGATL_API_KEY"
+        ):
+            self._append_log(
+                "错误：翻译引擎是 openai，但 MANGATL_API_KEY 未设置。"
+                "到「设置」里填写 Key，或把底部翻译引擎改成 echo。"
+            )
+            self.heartbeat.setText("未启动：缺少 MANGATL_API_KEY")
+            return
         command = [
             sys.executable,
             "-m",

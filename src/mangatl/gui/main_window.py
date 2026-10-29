@@ -341,6 +341,7 @@ class MainWindow(QMainWindow):
             lambda: self.run_page(self.page_index)
         )
         self.sheets["settings"].accentChanged.connect(self.on_accent)
+        self.sheets["settings"].apiConfigured.connect(self.on_api_configured)
 
         self.rail_current = "editor"
         self.rail_buttons["editor"].setChecked(True)
@@ -383,6 +384,9 @@ class MainWindow(QMainWindow):
             bar.addWidget(QLabel(labels[key]))
             box = QComboBox()
             box.addItems(options)
+            if key == "translator":
+                default = "openai" if os.environ.get("MANGATL_API_KEY") else "echo"
+                box.setCurrentText(default)
             self.engine_boxes[key] = box
             bar.addWidget(box)
             bar.addWidget(QLabel(" "))
@@ -963,6 +967,15 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("已添加文本块，输入内容后点“应用文本”")
 
     # -- run / theme ------------------------------------------------------
+    def on_api_configured(self) -> None:
+        """Switch the translator to openai once a key is entered."""
+        self.engine_boxes["translator"].setCurrentText("openai")
+        InfoBar.success(
+            "翻译接口已配置",
+            "本次会话内生效；批量任务会继承该设置",
+            parent=self,
+        )
+
     def on_batch_finished(self) -> None:
         """Refresh pages and the current view after a batch run."""
         self.refresh_pages()
