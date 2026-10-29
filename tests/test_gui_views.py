@@ -80,6 +80,14 @@ def test_result_view_disables_region_tool(window):
     assert window.selection_bar.isVisible() is False
 
 
+def test_result_view_shows_a_frame_for_every_block(window):
+    window.show_view("result")
+    if window.view_mode != "result":
+        pytest.skip("page has no result image")
+
+    assert len(window.canvas._overlay_items) == len(window.editor.page.blocks)
+
+
 def test_region_action_keeps_block_selection(window):
     window.select_block(0)
     window.region = [(0, 0), (10, 0), (10, 10), (0, 10)]

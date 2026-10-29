@@ -177,14 +177,17 @@ class PageCanvas(QGraphicsView):
         if self._overlay_mode == "diff":
             return
         for block in blocks:
-            if self._overlay_mode == "text" and not block.translation.strip():
-                continue
             x1, y1, x2, y2 = block.bbox
             colour = QColor(ROLE_COLORS.get(block.role, QColor(200, 200, 200, 60)))
             colour.setAlpha(int(colour.alpha() * self._overlay_opacity))
             pen = QPen(QColor(255, 255, 255, 220), 1.2)
             if self._overlay_mode == "text":
-                pen = QPen(QColor(255, 255, 255, 235), 1.6, Qt.PenStyle.DashLine)
+                # Untranslated blocks stay visible but dimmed, so the frame tools
+                # never look "missing" on a page that has not been translated yet.
+                if block.translation.strip():
+                    pen = QPen(QColor(255, 255, 255, 235), 1.6, Qt.PenStyle.DashLine)
+                else:
+                    pen = QPen(QColor(160, 160, 160, 170), 1.2, Qt.PenStyle.DotLine)
             if block.id in selected_ids:
                 pen = QPen(QColor(255, 214, 64), 2.2)
             item = QGraphicsRectItem(QRectF(x1, y1, x2 - x1, y2 - y1))
