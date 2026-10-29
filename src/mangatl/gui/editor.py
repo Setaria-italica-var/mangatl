@@ -179,7 +179,10 @@ class PageEditor:
         trimmed[y1:y2, x1:x2] = mask[y1:y2, x1:x2]
         scratch = TextBlock(id=0, bbox=(x1, y1, x2, y2))
         destination = self.erased_path
-        self.inpainter.erase(self.image_path, destination, [scratch], mask=trimmed)
+        # Start from the current erased page, not the original: otherwise every
+        # new region erase would undo the previous ones.
+        source = destination if destination.is_file() else self.image_path
+        self.inpainter.erase(source, destination, [scratch], mask=trimmed)
         self.page.mark("erase")
         self.project.save()
         return destination

@@ -253,12 +253,11 @@ class MainWindow(QMainWindow):
 
     def _selection_action(self, action: str) -> None:
         actions = {
-            "detect": self.redetect_region,
+            "detect": lambda: (self.redetect_region(), self.canvas.clear_selection()),
             "erase": self.erase_region,
-            "add": self.add_region_block,
+            "add": lambda: (self.add_region_block(), self.canvas.clear_selection()),
         }
         actions[action]()
-        self.canvas.clear_selection()
 
     def _cancel_selection(self) -> None:
         self.canvas.clear_selection()
@@ -615,9 +614,10 @@ class MainWindow(QMainWindow):
             return
         self._snapshot()
         path = self.editor.restore_region(points)
-        self.canvas.show_image(path)
+        self.canvas.show_image(path, keep_selection=True, preserve_view=True)
         self.canvas.set_blocks(self.editor.page.blocks, self.selected_ids)
         self._touch_page()
+        self._schedule_render()
         self.statusBar().showMessage("已把选区内恢复为原图")
 
     def _selected(self):
@@ -820,9 +820,10 @@ class MainWindow(QMainWindow):
         self._snapshot()
         path = self.editor.erase_region(self.region or [])
         self.view_mode = "erased"
-        self.canvas.show_image(path)
-        self.canvas.set_blocks(self.editor.page.blocks)
+        self.canvas.show_image(path, keep_selection=True, preserve_view=True)
+        self.canvas.set_blocks(self.editor.page.blocks, self.selected_ids)
         self._touch_page()
+        self._schedule_render()
         self.statusBar().showMessage(f"区域擦除 -> {path}")
 
     def add_region_block(self) -> None:
