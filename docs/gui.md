@@ -72,7 +72,7 @@ python -m mangatl gui samples\vol1
 - 若存在 `data/models/lama.onnx`，优先用 **LaMa** 做纹理级重建，效果接近 PS 内容识别填充
 
 ```
-python -m mangatl fetch-models --lama      # 下载 LaMa 权重（约 200MB，可选）
+python -m mangatl fetch-models --lama      # 下载 LaMa 权重（约 208MB，可断点续传）
 ```
 
 - 每次重绘都从**当前 `inpainted/` 继续**，多次局部重绘会叠加

@@ -249,7 +249,8 @@ class PageEditor:
         """LaMa when the weights are present, otherwise the mask filler."""
         from mangatl.adapters.inpaint.lama import DEFAULT_MODEL, LamaInpainter
 
-        if Path(DEFAULT_MODEL).is_file():
+        model = Path(DEFAULT_MODEL)
+        if model.is_file() and model.stat().st_size >= 150_000_000:
             return LamaInpainter()
         return MaskedInpainter()
 

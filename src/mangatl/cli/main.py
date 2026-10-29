@@ -354,25 +354,50 @@ def _force_offline() -> None:
 
 
 LAMA_URL = "https://hf-mirror.com/Carve/LaMa-ONNX/resolve/main/lama.onnx"
+LAMA_MIN_BYTES = 150_000_000
+LAMA_EXPECTED_BYTES = 207_500_000
 
 
 def _run_fetch_lama(destination: Path) -> int:
+    import os
     import urllib.request
 
-    if destination.is_file():
+    if destination.is_file() and destination.stat().st_size >= LAMA_MIN_BYTES:
         print(f"already present: {destination}")
         return 0
+    if destination.is_file():
+        print(f"removing incomplete file ({destination.stat().st_size / 1e6:.0f} MB)")
+        destination.unlink()
+
     destination.parent.mkdir(parents=True, exist_ok=True)
-    request = urllib.request.Request(LAMA_URL, headers={"User-Agent": "mangatl"})
+    part = destination.with_name(destination.name + ".part")
+    downloaded = part.stat().st_size if part.is_file() else 0
+    headers = {"User-Agent": "mangatl"}
+    if downloaded:
+        headers["Range"] = f"bytes={downloaded}-"
+        print(f"resuming at {downloaded / 1e6:.0f} MB")
+    request = urllib.request.Request(LAMA_URL, headers=headers)
     with urllib.request.urlopen(request, timeout=120) as response:
-        total = int(response.headers.get("Content-Length", 0))
-        with open(destination, "wb") as handle:
-            done = 0
+        if downloaded and response.status != 206:
+            downloaded = 0
+            print("server ignored the range request, restarting")
+        chunk_total = int(response.headers.get("Content-Length", 0))
+        total = downloaded + chunk_total if chunk_total else LAMA_EXPECTED_BYTES
+        mode = "ab" if downloaded else "wb"
+        done = downloaded
+        with open(part, mode) as handle:
             while chunk := response.read(1 << 20):
                 handle.write(chunk)
                 done += len(chunk)
-                if total:
-                    print(f"\r{done / 1e6:7.1f} / {total / 1e6:.0f} MB", end="", flush=True)
+                print(
+                    f"\r{done / 1e6:7.1f} / {total / 1e6:.0f} MB",
+                    end="",
+                    flush=True,
+                )
+    if part.stat().st_size < LAMA_MIN_BYTES:
+        print("\ndownload looks truncated; rerun to resume")
+        return 1
+    os.replace(part, destination)
     print(f"\nsaved {destination} ({destination.stat().st_size / 1e6:.0f} MB)")
     return 0
 
