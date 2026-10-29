@@ -34,7 +34,7 @@ def test_redraw_after_scene_clear_keeps_working(app):
 
     canvas.show_image(image)
     canvas.set_blocks([block], [1])
-    assert len(canvas._handle_items) == 8
+    assert len(canvas._handle_items) == 9
 
     # show_image() clears the scene, invalidating the handle wrappers; the next
     # redraw must not raise "Internal C++ object already deleted".
@@ -42,4 +42,4 @@ def test_redraw_after_scene_clear_keeps_working(app):
     canvas.set_blocks([block], [1])
 
     assert len(canvas._overlay_items) == 1
-    assert len(canvas._handle_items) == 8
+    assert len(canvas._handle_items) == 9
