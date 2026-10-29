@@ -8,6 +8,11 @@ import types
 from mangatl.adapters.ocr.rapid import RapidOcrAdapter
 
 
+def lang_name(value) -> str:
+    """Enum in rapidocr 2.x, plain string in older releases."""
+    return getattr(value, "value", value)
+
+
 def install_fake(monkeypatch, captured: dict) -> None:
     class FakeRapid:
         def __init__(self, **kwargs) -> None:
@@ -29,7 +34,7 @@ def test_japan_is_the_default_language(monkeypatch) -> None:
 
     RapidOcrAdapter()
 
-    assert captured["params"]["Rec.lang_type"] == "japan"
+    assert lang_name(captured["params"]["Rec.lang_type"]) == "japan"
 
 
 def test_language_can_be_overridden_by_argument(monkeypatch) -> None:
@@ -38,7 +43,7 @@ def test_language_can_be_overridden_by_argument(monkeypatch) -> None:
 
     RapidOcrAdapter(lang="en")
 
-    assert captured["params"]["Rec.lang_type"] == "en"
+    assert lang_name(captured["params"]["Rec.lang_type"]) == "en"
 
 
 def test_environment_sets_the_language(monkeypatch) -> None:
@@ -48,7 +53,7 @@ def test_environment_sets_the_language(monkeypatch) -> None:
 
     RapidOcrAdapter()
 
-    assert captured["params"]["Rec.lang_type"] == "korean"
+    assert lang_name(captured["params"]["Rec.lang_type"]) == "korean"
 
 
 def test_existing_params_are_preserved(monkeypatch) -> None:
@@ -58,4 +63,4 @@ def test_existing_params_are_preserved(monkeypatch) -> None:
     RapidOcrAdapter(params={"Global.text_score": 0.7})
 
     assert captured["params"]["Global.text_score"] == 0.7
-    assert captured["params"]["Rec.lang_type"] == "japan"
+    assert lang_name(captured["params"]["Rec.lang_type"]) == "japan"

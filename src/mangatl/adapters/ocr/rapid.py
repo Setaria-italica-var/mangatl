@@ -60,6 +60,35 @@ def overlap_ratio(
     return _intersection(line, block) / area
 
 
+def _recognition_params(language: str) -> dict[str, Any]:
+    """Build validated recognition params for rapidocr 2.x.
+
+    Falls back to strings when the enum module is unavailable (older releases),
+    which keeps the adapter usable across versions.
+    """
+    try:
+        from rapidocr.utils.typings import LangRec, ModelType, OCRVersion
+    except ImportError:  # pragma: no cover - older rapidocr
+        return {
+            "Rec.lang_type": language,
+            "Rec.ocr_version": "PP-OCRv4",
+            "Rec.model_type": "mobile",
+        }
+
+    def member(enum_type, name: str, default):
+        try:
+            return enum_type[name]
+        except KeyError:
+            return default
+
+    lang_member = member(LangRec, language.upper(), LangRec.JAPAN)
+    return {
+        "Rec.lang_type": lang_member,
+        "Rec.ocr_version": member(OCRVersion, "PPOCRV4", OCRVersion.PPOCRV4),
+        "Rec.model_type": member(ModelType, "MOBILE", ModelType.MOBILE),
+    }
+
+
 class RapidOcrAdapter:
     """Recognise text with RapidOCR and attach line texts to detected blocks."""
 
@@ -81,12 +110,11 @@ class RapidOcrAdapter:
             self._legacy = False
         language = lang or os.environ.get("MANGATL_OCR_LANG", "japan")
         if not self._legacy and language:
-            # rapidocr 2.x selects the recognition model through a params mapping;
-            # the default is Chinese, which cannot read kana.
+            # rapidocr 2.x selects the recognition model through a params mapping
+            # and validates the values against enums, so plain strings are rejected.
             params = dict(engine_kwargs.pop("params", {}) or {})
-            params.setdefault("Rec.lang_type", language)
-            params.setdefault("Rec.ocr_version", "PP-OCRv4")
-            params.setdefault("Rec.model_type", "mobile")
+            for key, value in _recognition_params(language).items():
+                params.setdefault(key, value)
             engine_kwargs["params"] = params
         self._engine = RapidOCR(**engine_kwargs)
 
