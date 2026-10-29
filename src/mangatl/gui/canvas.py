@@ -35,6 +35,7 @@ class PageCanvas(QGraphicsView):
     selectionChanged = Signal(bool)
     selectionIdsChanged = Signal(list)
     contextMenuRequested = Signal(object)
+    blockRotated = Signal(int, float)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -59,6 +60,7 @@ class PageCanvas(QGraphicsView):
         self._rubber_item: QGraphicsRectItem | None = None
         self._rubber_moved = False
         self._overlay_mode = "blocks"
+        self._rotations: dict[int, float] = {}
         self._diff_item: QGraphicsPixmapItem | None = None
         self._points: list[QPointF] = []
         self._panning = False
@@ -160,6 +162,9 @@ class PageCanvas(QGraphicsView):
         self._clear_handles()
         self._selected = list(selected_ids)
         self._selected_id = self._selected[0] if self._selected else None
+        self._rotations = {
+            block.id: float(getattr(block, "rotation", 0.0) or 0.0) for block in blocks
+        }
         if self._overlay_mode == "diff":
             return
         for block in blocks:
@@ -181,7 +186,9 @@ class PageCanvas(QGraphicsView):
             self.scene().addItem(item)
             self._overlay_items[block.id] = item
             if len(self._selected) == 1 and block.id == self._selected_id:
-                self._build_handles(block.bbox)
+                item.setTransformOriginPoint((x1 + x2) / 2, (y1 + y2) / 2)
+                item.setRotation(self._rotations.get(block.id, 0.0))
+                self._build_handles(block.bbox, self._rotations.get(block.id, 0.0))
 
     def set_overlay_opacity(self, value: int) -> None:
         """Set block overlay opacity, 0-100 (100 = fully visible)."""
@@ -223,6 +230,19 @@ class PageCanvas(QGraphicsView):
             return
         if event.button() == Qt.MouseButton.LeftButton:
             item = self.itemAt(event.position().toPoint())
+            if isinstance(item, QGraphicsRectItem) and item.data(1) == "rot":
+                box = self._rect_of(int(item.data(2)))
+                self._drag = {
+                    "mode": "rotate",
+                    "handle": "rot",
+                    "block": int(item.data(2)),
+                    "start": position,
+                    "bbox": box,
+                    "center": ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2),
+                    "base": self._rotations.get(int(item.data(2)), 0.0),
+                }
+                event.accept()
+                return
             if isinstance(item, QGraphicsRectItem) and item.data(1) is not None:
                 self._drag = {
                     "mode": "resize",
@@ -275,6 +295,22 @@ class PageCanvas(QGraphicsView):
             start = self._drag["start"]
             dx, dy = int(position.x() - start.x()), int(position.y() - start.y())
             bbox = self._drag["bbox"]
+            if self._drag["mode"] == "rotate":
+                cx, cy = self._drag["center"]
+                import math
+
+                start = self._drag["start"]
+                start_angle = math.degrees(math.atan2(start.y() - cy, start.x() - cx))
+                now_angle = math.degrees(math.atan2(position.y() - cy, position.x() - cx))
+                degrees = self._drag["base"] + (now_angle - start_angle)
+                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                    degrees = round(degrees / 15) * 15
+                self._rotations[int(self._drag["block"])] = degrees
+                item = self._overlay_items.get(int(self._drag["block"]))
+                if item is not None:
+                    item.setTransformOriginPoint(cx, cy)
+                    item.setRotation(degrees)
+                return
             if self._drag["mode"] == "move":
                 new_bbox = move_bbox(bbox, dx, dy, *self._page_size())
             else:
@@ -305,6 +341,11 @@ class PageCanvas(QGraphicsView):
             self._panning = False
             return
         if self._drag is not None:
+            if self._drag.get("mode") == "rotate":
+                degrees = self._rotations.get(int(self._drag["block"]), 0.0)
+                self.blockRotated.emit(int(self._drag["block"]), degrees)
+                self._drag = None
+                return
             item = self._overlay_items.get(int(self._drag["block"]))
             if item is not None:
                 rect = item.rect()
@@ -339,6 +380,7 @@ class PageCanvas(QGraphicsView):
         self._rubber = {"start": position, "mode": mode}
         self._rubber_moved = False
         self._overlay_mode = "blocks"
+        self._rotations: dict[int, float] = {}
         self._diff_item: QGraphicsPixmapItem | None = None
         self._clear_rubber_item()
 
@@ -488,7 +530,9 @@ class PageCanvas(QGraphicsView):
             self._remove_item(item)
         self._handle_items.clear()
 
-    def _build_handles(self, bbox: tuple[int, int, int, int]) -> None:
+    def _build_handles(
+        self, bbox: tuple[int, int, int, int], rotation: float = 0.0
+    ) -> None:
         self._clear_handles()
         x1, y1, x2, y2 = bbox
         cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
@@ -503,6 +547,14 @@ class PageCanvas(QGraphicsView):
             "w": (x1, cy),
         }
         size = 9
+        handle = QGraphicsRectItem(cx - size / 2, y1 - 30 - size / 2, size, size)
+        handle.setBrush(QBrush(QColor(120, 220, 255)))
+        handle.setPen(QPen(QColor(40, 40, 40), 1))
+        handle.setData(1, "rot")
+        handle.setData(2, self._selected_id)
+        handle.setZValue(10)
+        self.scene().addItem(handle)
+        self._handle_items["rot"] = handle
         for name, (px, py) in positions.items():
             handle = QGraphicsRectItem(px - size / 2, py - size / 2, size, size)
             handle.setBrush(QBrush(QColor(255, 255, 255)))

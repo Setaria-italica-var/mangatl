@@ -193,9 +193,11 @@ class EditorSheet(QWidget):
         self.info.setText(
             f"#{block.id} {block.role} {'竖排' if block.vertical else '横排'}"
         )
+        rotation = float(getattr(block, "rotation", 0.0) or 0.0)
+        extra = f" · 旋转 {rotation:.0f}°" if abs(rotation) > 0.5 else ""
         self.meta.setText(
             f"score={block.ocr_score:.2f} · source={block.ocr_source or '-'} · "
-            f"{'气泡内' if block.in_bubble else '背景'}"
+            f"{'气泡内' if block.in_bubble else '背景'}{extra}"
         )
         self.text_edit.setPlainText(block.text)
         self.translation_edit.setPlainText(block.translation)

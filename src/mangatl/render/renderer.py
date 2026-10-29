@@ -98,6 +98,15 @@ class PageRenderer:
         if font_ref is None:
             return  # no CJK font on this machine: skip rather than draw boxes
 
+        rotation = float(getattr(block, "rotation", 0.0) or 0.0)
+        target = page
+        target_draw = draw
+        if abs(rotation) > 0.01:
+            # Letter on a transparent layer, then rotate about the box centre so
+            # the glyphs can be placed at any angle without smearing the page.
+            target = Image.new("RGBA", page.size, (0, 0, 0, 0))
+            target_draw = ImageDraw.Draw(target)
+
         explicit_size = int((block.style or {}).get("font_size") or 0)
         start = explicit_size or max(self.config.min_font_size + 2, int(style.font_size * 1.1))
         # Reserve room for the outline: a glyph of size S plus stroke occupies S+2*stroke.
@@ -113,7 +122,7 @@ class PageRenderer:
                 min_size=self.config.min_font_size,
                 column_spacing=self.config.column_spacing,
             )
-            self._draw_vertical(draw, page, block, layout, style, font_ref, box)
+            self._draw_vertical(target_draw, target, block, layout, style, font_ref, box)
         else:
             spacing = float((block.style or {}).get("line_spacing") or self.config.line_spacing)
             layout = fit_horizontal(
@@ -125,7 +134,17 @@ class PageRenderer:
                 min_size=self.config.min_font_size,
                 line_spacing=spacing,
             )
-            self._draw_horizontal(draw, block, layout, style, font_ref, box)
+            self._draw_horizontal(target_draw, block, layout, style, font_ref, box)
+
+        if target is not page:
+            centre = ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
+            rotated = target.rotate(
+                -rotation,
+                resample=Image.BICUBIC,
+                center=centre,
+                fillcolor=(0, 0, 0, 0),
+            )
+            page.alpha_composite(rotated)
 
         # Recompute rather than accumulate: an earlier run may have flagged this
         # block with a different font size, and stale flags are not actionable.

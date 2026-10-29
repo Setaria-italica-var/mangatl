@@ -199,6 +199,7 @@ class MainWindow(QMainWindow):
         self.canvas.setMinimumWidth(420)
         self.canvas.blockClicked.connect(self.select_block)
         self.canvas.blockGeometryChanged.connect(self.on_geometry_changed)
+        self.canvas.blockRotated.connect(self.on_block_rotated)
         self.canvas.lassoFinished.connect(self.on_lasso)
         self.canvas.rectFinished.connect(self.on_rect)
         self.canvas.cursorMoved.connect(
@@ -659,6 +660,21 @@ class MainWindow(QMainWindow):
         self._touch_page()
         self._schedule_render()
         self.statusBar().showMessage(f"#{block_id} 已调整框 {block.bbox}")
+
+    def on_block_rotated(self, block_id: int, degrees: float) -> None:
+        """Persist a free-transform rotation from the canvas."""
+        if self.editor is None:
+            return
+        block = next((b for b in self.editor.page.blocks if b.id == block_id), None)
+        if block is None:
+            return
+        self._snapshot()
+        block.rotation = round(float(degrees), 2)
+        self.editor.project.save()
+        self.canvas.set_blocks(self.editor.page.blocks, [block_id])
+        self._touch_page()
+        self._schedule_render()
+        self.statusBar().showMessage(f"#{block_id} 旋转 {block.rotation:.0f}°")
 
     def on_block_edited(
         self, block_id: int, text: str, translation: str, role: str
