@@ -178,7 +178,9 @@ class EditorSheet(QWidget):
             f"{page.name} · {len(page.blocks)} 块 · 状态 {page_status(page)}"
         )
 
-    def show_block(self, block: TextBlock | None) -> None:
+    def show_block(
+        self, block: TextBlock | None, effective: dict | None = None
+    ) -> None:
         self._block_id = block.id if block else None
         if block is None:
             self.info.setText("未选中文本块")
@@ -199,11 +201,15 @@ class EditorSheet(QWidget):
         self.translation_edit.setPlainText(block.translation)
         self.role_box.setCurrentText(block.role)
         style = block.style or {}
+        effective = effective or {}
         categories = {"sans": "黑体", "serif": "宋体", "hand": "手写"}
-        self.font_box.setCurrentText(categories.get(style.get("font", ""), "黑体"))
+        category = style.get("font") or effective.get("font", "")
+        self.font_box.setCurrentText(categories.get(category, "黑体"))
         self.size_box.setValue(int(style.get("font_size") or 0))
-        self.bold_box.setChecked(bool(style.get("bold", False)))
-        self.italic_box.setChecked(bool(style.get("italic", False)))
+        self.bold_box.setChecked(bool(style.get("bold", effective.get("bold", False))))
+        self.italic_box.setChecked(
+            bool(style.get("italic", effective.get("italic", False)))
+        )
         aligns = {"left": "左对齐", "right": "右对齐", "center": "居中"}
         self.align_box.setCurrentText(aligns.get(style.get("align", ""), "居中"))
         self.spacing_box.setValue(float(style.get("line_spacing") or 0.0))

@@ -146,6 +146,9 @@ class PageRenderer:
             "stroke": int(style.stroke_width),
             "fg": "#{:02x}{:02x}{:02x}".format(*style.fg),
             "bg": "#{:02x}{:02x}{:02x}".format(*style.bg),
+            "bold": style.weight == "bold",
+            "italic": bool(style.italic),
+            "font": style.category,
         }
 
     # -- internals --------------------------------------------------------

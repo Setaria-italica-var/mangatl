@@ -584,7 +584,15 @@ class MainWindow(QMainWindow):
             return
         self.selected_id = block_id
         self.selected_ids = [block_id]
-        self.sheets["editor"].show_block(block)
+        effective = None
+        if self.editor is not None and not (block.style or {}).get("bold"):
+            try:
+                from mangatl.render.renderer import PageRenderer
+
+                effective = PageRenderer().estimate(block, self.editor.image_path)
+            except Exception:  # noqa: BLE001 - estimate is cosmetic
+                effective = None
+        self.sheets["editor"].show_block(block, effective)
         self.canvas.set_blocks(self.editor.page.blocks, [block_id])
 
     def on_selection_ids(self, ids: list[int]) -> None:
