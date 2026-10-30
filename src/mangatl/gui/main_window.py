@@ -116,6 +116,8 @@ class MainWindow(QMainWindow):
         button = TransparentToolButton(icon)
         button.setToolTip(tooltip)
         button.setCheckable(checkable)
+        button.setFixedSize(30, 30)
+        button.setIconSize(QSize(18, 18))
         button.clicked.connect(slot)
         return button
 
@@ -125,6 +127,7 @@ class MainWindow(QMainWindow):
         button.setObjectName("ModeButton")
         button.setIcon(icon.icon())
         button.setIconSize(QSize(18, 18))
+        button.setFixedSize(30, 30)
         button.setToolTip(tooltip)
         button.setCheckable(True)
         button.clicked.connect(slot)
@@ -179,6 +182,7 @@ class MainWindow(QMainWindow):
             bar.addWidget(button)
         self.btn_view_source.setChecked(True)
         self.btn_auto = CheckBox("实时预览")
+        self.btn_auto.setFixedHeight(30)
         self.btn_auto.setToolTip("编辑后自动重排当前页（约 350ms 防抖）")
         self.btn_auto.setChecked(True)
         self.btn_auto.stateChanged.connect(self._toggle_auto_preview)
@@ -324,17 +328,19 @@ class MainWindow(QMainWindow):
         rail_layout.setSpacing(4)
         self.rail_buttons: dict[str, TransparentToolButton] = {}
         for key in SHEET_TITLES:
+            if key == "run":
+                rail_layout.addSpacing(8)
+                self.rail_search = TransparentToolButton(FIF.SEARCH)
+                self.rail_search.setToolTip("搜索（Ctrl+G，弹窗）")
+                self.rail_search.clicked.connect(self.show_search)
+                rail_layout.addWidget(self.rail_search)
+                rail_layout.addSpacing(8)
             button = TransparentToolButton(SHEET_ICONS[key])
             button.setToolTip(SHEET_TITLES[key])
             button.setCheckable(True)
             button.clicked.connect(lambda _=False, k=key: self.show_module(k))
             self.rail_buttons[key] = button
             rail_layout.addWidget(button)
-        rail_layout.addSpacing(10)
-        self.rail_search = TransparentToolButton(FIF.SEARCH)
-        self.rail_search.setToolTip("搜索（Ctrl+G，弹窗）")
-        self.rail_search.clicked.connect(self.show_search)
-        rail_layout.addWidget(self.rail_search)
         rail_layout.addStretch(1)
         layout.addWidget(rail)
 
