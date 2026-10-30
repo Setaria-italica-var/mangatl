@@ -105,9 +105,6 @@ def default_registries() -> tuple[
             profile,
             lambda name=profile: OpenAiTranslator(LlmConfig.from_env(name)),
         )
-    from mangatl.adapters.translators.openai_compat import OpenAiTranslator
-
-    translators.add("openai", OpenAiTranslator)
     return detectors, ocrs, inpainters, translators
 
 
@@ -321,9 +318,13 @@ def _build_ocr_judge(config: RunConfig):
     if not config.verify_ocr:
         return None
     from mangatl.adapters.ocr.judge import LlmJudge
-    from mangatl.adapters.translators.openai_compat import LlmConfig
+    from mangatl.adapters.translators.openai_compat import LlmConfig, TranslationError
 
-    judge = LlmJudge(LlmConfig.from_env())
+    try:
+        config_llm = LlmConfig.from_env()
+    except TranslationError:
+        return None
+    judge = LlmJudge(config_llm)
     return judge if judge.available else None
 
 

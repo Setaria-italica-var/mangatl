@@ -70,3 +70,29 @@ launch.bat
 ```bat
 .venv\Scripts\python.exe -m mangatl fetch-models --lama
 ```
+
+
+## 便携版（bat 启动）
+
+PyInstaller 单文件/单目录方案在部分机器上会秒退，便携版改为 **内嵌 Python + bat**：
+
+```bat
+python tools/build_portable_bat.py
+```
+
+产物在 `dist/mangatl-portable/`（约 3.5 GB，含模型）：
+
+```
+启动.bat                    双击即用；也可 启动.bat "D:\漫画\vol1"
+runtime/                    内嵌 CPython 3.12 + 全部依赖（含 torch、PySide6、pywin32）
+runtime/Lib/site-packages/  依赖与 mangatl 包
+data/models/                CTD、MIT48、manga-ocr、气泡、LaMa
+data/hf/                    manga-ocr 的 Hugging Face 快照
+使用说明.txt
+```
+
+- 不写注册表、不装系统 Python；整个文件夹可拷到其它 Windows 电脑
+- 模型路径相对程序目录；翻译 Key 用 DPAPI 加密存 `data/secrets.bin`（绑定当前 Windows 用户）
+- 内嵌 Python 的 `python312._pth` 必须包含 `Lib\site-packages`、pywin32 目录和 `import site`，
+  否则 `qfluentwidgets` 找不到 `win32api`
+- `runtime\python.exe -m mangatl run <目录> ...` 可当命令行版使用
