@@ -5,9 +5,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, Qt, QTimer
+from PySide6.QtCore import QPointF, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QComboBox,
     QDockWidget,
     QHBoxLayout,
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
     QSlider,
     QStackedWidget,
     QToolBar,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -116,6 +118,17 @@ class MainWindow(QMainWindow):
         button.clicked.connect(slot)
         return button
 
+    def _mode_button(self, icon, tooltip: str, slot) -> QToolButton:
+        """Exclusive tool button whose checked state is the visible tool mode."""
+        button = QToolButton()
+        button.setObjectName("ModeButton")
+        button.setIcon(icon.icon())
+        button.setIconSize(QSize(18, 18))
+        button.setToolTip(tooltip)
+        button.setCheckable(True)
+        button.clicked.connect(slot)
+        return button
+
     def _build_toolbar(self) -> None:
         """Toolbar grouped by task: file, select, view, navigate, act."""
         bar = QToolBar("工具", self)
@@ -130,17 +143,20 @@ class MainWindow(QMainWindow):
         bar.addSeparator()
 
         # selection tools
-        self.btn_select = self._tool_button(
-            FIF.CLEAR_SELECTION, "选择", lambda: self._set_mode("select"), True
+        self.btn_select = self._mode_button(
+            FIF.CLEAR_SELECTION, "选择", lambda: self._set_mode("select")
         )
-        self.btn_lasso = self._tool_button(
-            FIF.CUT, "套索", lambda: self._set_mode("lasso"), True
+        self.btn_lasso = self._mode_button(
+            FIF.CUT, "套索", lambda: self._set_mode("lasso")
         )
-        self.btn_rect = self._tool_button(
-            FIF.FULL_SCREEN, "矩形", lambda: self._set_mode("rect"), True
+        self.btn_rect = self._mode_button(
+            FIF.FULL_SCREEN, "矩形", lambda: self._set_mode("rect")
         )
         self.btn_select.setChecked(True)
+        self.mode_group = QButtonGroup(self)
+        self.mode_group.setExclusive(True)
         for button in (self.btn_select, self.btn_lasso, self.btn_rect):
+            self.mode_group.addButton(button)
             bar.addWidget(button)
         bar.addSeparator()
 

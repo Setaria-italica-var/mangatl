@@ -49,6 +49,13 @@ QListWidget#PageThumbs {
 QListWidget#PageThumbs::item { border-radius: 6px; padding: 6px; margin: 2px; }
 QListWidget#PageThumbs::item:hover { background: #323232; }
 QListWidget#PageThumbs::item:selected { background: #2f6fb5; color: #ffffff; }
+QToolButton#ModeButton {
+    border: none;
+    border-radius: 6px;
+    padding: 4px;
+}
+QToolButton#ModeButton:hover { background: #323232; }
+QToolButton#ModeButton:checked { background: #2f6fb5; }
 """
 
 
