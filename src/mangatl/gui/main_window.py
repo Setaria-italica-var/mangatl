@@ -640,11 +640,9 @@ class MainWindow(QMainWindow):
         menu = RoundMenu(parent=self)
         for text, icon, slot in (
             (f"删除所选（{len(self.selected_ids)}）", FIF.DELETE, self.delete_selected),
-            ("重新识别所选", FIF.SYNC, self.reocr_block),
+            ("重新识别所选（只认字）", FIF.SYNC, self.reocr_block),
             ("翻译所选", FIF.GLOBE, self.translate_block),
-            ("重新检测选区", FIF.SEARCH, self.redetect_region),
-            ("重绘选区（原地填充）", FIF.BRUSH, self.erase_region),
-            ("恢复选区至原图", FIF.RETURN, self.restore_selected_region),
+            ("重新检测选区（只找框）", FIF.SEARCH, self.redetect_region),
         ):
             menu.addAction(Action(text, menu, icon=icon, triggered=slot))
         return menu
@@ -857,18 +855,61 @@ class MainWindow(QMainWindow):
         elif action == "delete":
             self.delete_block()
 
+    def _ocr_engine(self):
+        """Fusion when the MIT48 weights exist, otherwise manga-ocr alone."""
+        from mangatl.adapters.ocr.manga_ocr import MangaOcrAdapter
+
+        manga = MangaOcrAdapter()
+        try:
+            from mangatl.adapters.ocr.hybrid import FusionOcr
+            from mangatl.adapters.ocr.mit48px import DEFAULT_MODEL, Mit48pxOcr
+
+            model = Path(os.environ.get("MANGATL_MIT48_MODEL", DEFAULT_MODEL))
+            if model.is_file():
+                return FusionOcr(Mit48pxOcr(), manga)
+        except Exception:  # noqa: BLE001 - optional engine
+            pass
+        return manga
+
     def reocr_block(self) -> None:
         block = self._selected()
         if block is None or self.editor is None:
             return
         self._snapshot()
-        from mangatl.adapters.ocr.manga_ocr import MangaOcrAdapter
+        # OCR adapters write into the block they receive, so keep the old text.
+        original_text = block.text
+        original_source = block.ocr_source
+        probe = self._ocr_engine().recognize(self.editor.image_path, [block])[0]
+        text = probe.text.strip()
+        from mangatl.domain.plausibility import plausibility
+        from mangatl.domain.quality import looks_like_hallucination
 
-        adapter = MangaOcrAdapter()
-        probe = adapter.recognize(self.editor.image_path, [block])[0]
-        self.sheets["editor"].text_edit.setPlainText(probe.text)
+        suspicious = (
+            not text
+            or plausibility(text) < 0.25
+            or looks_like_hallucination(text, block.text)
+        )
+        if suspicious:
+            block.text = original_text
+            block.ocr_source = original_source
+            block.needs_review = True
+            self.editor.project.save()
+            self._touch_page()
+            InfoBar.warning(
+                "识别结果可疑",
+                f"「{text[:24] or '空'}」没有写入，已保留原文；可用选区重新检测或手动输入",
+                parent=self,
+            )
+            self.statusBar().showMessage(f"#{block.id} 重新识别被拒绝：{text[:20]}")
+            return
+        block.text = text
+        block.ocr_source = "reocr"
+        block.needs_review = False
         self.editor.project.save()
-        self.statusBar().showMessage(f"重新识别 #{probe.id}: {probe.text[:20]}")
+        self.sheets["editor"].show_block(block)
+        self.canvas.set_blocks(self.editor.page.blocks, [block.id])
+        self._schedule_render()
+        self.statusBar().showMessage(f"重新识别 #{block.id}: {text[:20]}")
 
     def translate_block(self) -> None:
         block = self._selected()

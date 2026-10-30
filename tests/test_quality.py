@@ -41,3 +41,18 @@ def test_has_content_ignores_punctuation() -> None:
     assert not has_content("……")
     assert has_content("はい")
     assert has_content("2018")
+
+
+def test_hallucination_rejects_dates() -> None:
+    from mangatl.domain.quality import looks_like_hallucination
+
+    assert looks_like_hallucination("2024年1月1日", "これより")
+    assert looks_like_hallucination("1/1/2024", "おはよう")
+    assert not looks_like_hallucination("2024年", "2025年")
+
+
+def test_hallucination_rejects_losing_japanese() -> None:
+    from mangatl.domain.quality import looks_like_hallucination
+
+    assert looks_like_hallucination("ABC 123", "あいう")
+    assert not looks_like_hallucination("接下来 各位", "これより")

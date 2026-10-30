@@ -11,6 +11,7 @@ The helpers here are small, pure and easy to tune from real pages.
 
 from __future__ import annotations
 
+import re
 import unicodedata
 
 GARBLED_LATIN_RATIO = 0.5
@@ -92,3 +93,23 @@ def has_content(text: str) -> bool:
     """Whether there is something worth lettering back (not just punctuation)."""
     visible = [char for char in text if not char.isspace()]
     return any(char.isalnum() for char in visible)
+
+
+_DATE_LIKE = re.compile(
+    r"^\s*(\d{2,4}\s*[年./-])?\s*\d{1,2}\s*[月./-]\s*\d{1,2}\s*日?\s*$"
+)
+_JAPANESE = re.compile(r"[ぁ-んァ-ヶ一-龯]")
+
+
+def looks_like_hallucination(candidate: str, original: str) -> bool:
+    """Reject OCR output that is clearly not this bubble's text.
+
+    The common failure mode of a single-crop OCR is inventing a date or dropping
+    Japanese entirely when the crop is mostly artwork.
+    """
+    text = candidate.strip()
+    if not text:
+        return False
+    if _DATE_LIKE.match(text):
+        return True
+    return bool(_JAPANESE.search(original) and not _JAPANESE.search(text))
