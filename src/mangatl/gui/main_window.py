@@ -102,6 +102,8 @@ class MainWindow(QMainWindow):
             ("Ctrl+3", lambda: self.show_view("result")),
             ("Home", self.canvas.fit),
             ("F", self.canvas.fit),
+            ("PgUp", lambda: self.load_page(self.page_index - 1)),
+            ("PgDown", lambda: self.load_page(self.page_index + 1)),
             ("Esc", self._cancel_selection),
             ("R", self.canvas.rotate_view),
             ("F11", self.toggle_fullscreen),
@@ -190,22 +192,6 @@ class MainWindow(QMainWindow):
         bar.addSeparator()
 
         # view
-        bar.addWidget(
-            self._tool_button(FIF.FIT_PAGE, "适应窗口", lambda: self.canvas.fit())
-        )
-        bar.addWidget(
-            self._tool_button(FIF.ROTATE, "旋转 90°", lambda: self.canvas.rotate_view())
-        )
-        bar.addWidget(
-            self._tool_button(
-                FIF.PAGE_LEFT, "上一页", lambda: self.load_page(self.page_index - 1)
-            )
-        )
-        bar.addWidget(
-            self._tool_button(
-                FIF.PAGE_RIGHT, "下一页", lambda: self.load_page(self.page_index + 1)
-            )
-        )
         bar.addWidget(
             self._tool_button(FIF.FULL_SCREEN, "全屏", self.toggle_fullscreen)
         )
@@ -342,6 +328,20 @@ class MainWindow(QMainWindow):
             self.rail_buttons[key] = button
             rail_layout.addWidget(button)
         rail_layout.addStretch(1)
+        rail_layout.addSpacing(8)
+        self.rail_view: list[TransparentToolButton] = []
+        for icon, tip, slot in (
+            (FIF.FIT_PAGE, "适应窗口 (F/Home)", lambda: self.canvas.fit()),
+            (FIF.ROTATE, "旋转 90° (R)", lambda: self.canvas.rotate_view()),
+            (FIF.PAGE_LEFT, "上一页 (PgUp)", lambda: self.load_page(self.page_index - 1)),
+            (FIF.PAGE_RIGHT, "下一页 (PgDown)", lambda: self.load_page(self.page_index + 1)),
+        ):
+            button = TransparentToolButton(icon)
+            button.setToolTip(tip)
+            button.setFixedSize(30, 30)
+            button.clicked.connect(slot)
+            self.rail_view.append(button)
+            rail_layout.addWidget(button)
         layout.addWidget(rail)
 
         self.stack = QStackedWidget()
