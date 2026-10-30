@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 from PySide6.QtCore import QPointF, QSize, Qt, QTimer
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QColor, QIcon, QKeySequence, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QSizePolicy,
     QSlider,
     QStackedWidget,
     QToolBar,
@@ -123,6 +124,19 @@ class MainWindow(QMainWindow):
         button.clicked.connect(slot)
         return button
 
+    def _maximize_icon(self) -> QIcon:
+        """Windows-like fullscreen glyph: a plain square outline."""
+        pixmap = QPixmap(32, 32)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pen = QPen(QColor("#e6e6e6"), 2.4)
+        pen.setCapStyle(Qt.PenCapStyle.SquareCap)
+        painter.setPen(pen)
+        painter.drawRect(7, 7, 18, 18)
+        painter.end()
+        return QIcon(pixmap)
+
     def _mode_button(self, icon, tooltip: str, slot) -> QToolButton:
         """Exclusive tool button whose checked state is the visible tool mode."""
         button = QToolButton()
@@ -191,14 +205,24 @@ class MainWindow(QMainWindow):
         bar.addWidget(self.btn_auto)
         bar.addSeparator()
 
-        # view
-        bar.addWidget(
-            self._tool_button(FIF.FULL_SCREEN, "全屏", self.toggle_fullscreen)
-        )
-        bar.addSeparator()
-
         # actions
+        bar.addSeparator()
         bar.addWidget(self._tool_button(FIF.RETURN, "撤销", self.undo))
+
+        # far right: fullscreen
+        spacer = QWidget(bar)
+        spacer.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
+        bar.addWidget(spacer)
+        fullscreen = QToolButton()
+        fullscreen.setObjectName("ModeButton")
+        fullscreen.setIcon(self._maximize_icon())
+        fullscreen.setIconSize(QSize(18, 18))
+        fullscreen.setFixedSize(30, 30)
+        fullscreen.setToolTip("全屏 (F11)")
+        fullscreen.clicked.connect(self.toggle_fullscreen)
+        bar.addWidget(fullscreen)
 
     # -- canvas / sidebar -------------------------------------------------
     def _build_central(self) -> None:
