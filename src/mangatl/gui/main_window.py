@@ -161,18 +161,21 @@ class MainWindow(QMainWindow):
         bar.addSeparator()
 
         # preview mode
-        self.btn_view_source = self._tool_button(
-            FIF.PHOTO, "原图 (Ctrl+1)", lambda: self.show_view("source"), True
+        self.btn_view_source = self._mode_button(
+            FIF.PHOTO, "原图 (Ctrl+1)", lambda: self.show_view("source")
         )
-        self.btn_view_erased = self._tool_button(
-            FIF.BRUSH, "擦除后 (Ctrl+2)", lambda: self.show_view("erased"), True
+        self.btn_view_erased = self._mode_button(
+            FIF.BRUSH, "擦除后 (Ctrl+2)", lambda: self.show_view("erased")
         )
-        self.btn_view_result = self._tool_button(
-            FIF.VIEW, "排版结果 (Ctrl+3)", lambda: self.show_view("result"), True
+        self.btn_view_result = self._mode_button(
+            FIF.VIEW, "排版结果 (Ctrl+3)", lambda: self.show_view("result")
         )
-        self.btn_view_source.setChecked(True)
+        self.view_group = QButtonGroup(self)
+        self.view_group.setExclusive(True)
         for button in (self.btn_view_source, self.btn_view_erased, self.btn_view_result):
+            self.view_group.addButton(button)
             bar.addWidget(button)
+        self.btn_view_source.setChecked(True)
         self.btn_auto = CheckBox("实时预览")
         self.btn_auto.setToolTip("编辑后自动重排当前页（约 350ms 防抖）")
         self.btn_auto.setChecked(True)
