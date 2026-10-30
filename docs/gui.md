@@ -31,6 +31,7 @@ python -m mangatl gui samples\vol1
 
 | ▶ | 运行 | 当前页 + 批量（范围/阶段/断点续跑/心跳/日志） |
 | ⚙ | 设置 | 翻译接口（预设：DeepSeek 云 / Ollama / LM Studio / llama.cpp）、Key 加密保存 |
+| ⌕ | 搜索（弹窗） | 图标栏底部的搜索按钮，打开跨页搜索对话框（同 `Ctrl+G`） |
 
 ## 预览原图 / 擦除 / 结果
 

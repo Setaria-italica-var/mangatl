@@ -95,6 +95,7 @@ class MainWindow(QMainWindow):
         """Global keys: undo/save, previews, fit, rotate, full screen."""
         for keys, slot in (
             ("Ctrl+Z", self.undo),
+            ("F5", lambda: self.run_page(self.page_index)),
             ("Ctrl+S", self.save),
             ("Ctrl+1", lambda: self.show_view("source")),
             ("Ctrl+2", lambda: self.show_view("erased")),
@@ -140,6 +141,7 @@ class MainWindow(QMainWindow):
         bar.addWidget(
             self._tool_button(FIF.FOLDER, "打开文件夹", self.open_folder_dialog)
         )
+        bar.addWidget(self._tool_button(FIF.SAVE, "保存", self.save))
         bar.addSeparator()
 
         # selection tools
@@ -206,13 +208,6 @@ class MainWindow(QMainWindow):
         bar.addSeparator()
 
         # actions
-        bar.addWidget(self._tool_button(FIF.SEARCH, "搜索", self.show_search))
-        bar.addWidget(
-            self._tool_button(
-                FIF.PLAY, "运行本页", lambda: self.run_page(self.page_index)
-            )
-        )
-        bar.addWidget(self._tool_button(FIF.SAVE, "保存", self.save))
         bar.addWidget(self._tool_button(FIF.RETURN, "撤销", self.undo))
 
     # -- canvas / sidebar -------------------------------------------------
@@ -335,6 +330,11 @@ class MainWindow(QMainWindow):
             button.clicked.connect(lambda _=False, k=key: self.show_module(k))
             self.rail_buttons[key] = button
             rail_layout.addWidget(button)
+        rail_layout.addSpacing(10)
+        self.rail_search = TransparentToolButton(FIF.SEARCH)
+        self.rail_search.setToolTip("搜索（Ctrl+G，弹窗）")
+        self.rail_search.clicked.connect(self.show_search)
+        rail_layout.addWidget(self.rail_search)
         rail_layout.addStretch(1)
         layout.addWidget(rail)
 
