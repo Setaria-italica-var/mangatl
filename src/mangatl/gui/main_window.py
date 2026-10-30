@@ -382,6 +382,10 @@ class MainWindow(QMainWindow):
             bar.addWidget(QLabel(labels[key]))
             box = QComboBox()
             box.addItems(options)
+            if key == "inpainter":
+                box.currentTextChanged.connect(
+                    lambda _value: self._apply_inpainter_choice()
+                )
             if key == "translator":
                 default = "openai" if os.environ.get("MANGATL_API_KEY") else "ollama"
                 box.setCurrentText(default)
@@ -446,6 +450,7 @@ class MainWindow(QMainWindow):
         self.page_list.blockSignals(False)
         page = list(self.project)[index]
         self.editor = PageEditor(self.project, page)
+        self.editor.inpainter = self._make_inpainter()
         self.selected_id = None
         if not keep_selection:
             # A selection belongs to one page: drop it (and its floating bar) when
@@ -513,6 +518,31 @@ class MainWindow(QMainWindow):
         self.project.save()
         self.refresh_pages()
         self.statusBar().showMessage(f"{page.name} 已重置")
+
+    def _make_inpainter(self):
+        """Build the inpainter selected in the bottom bar, with a safe fallback."""
+        from mangatl.adapters.inpaint.masked import MaskedInpainter
+
+        choice = self.engine_boxes["inpainter"].currentText()
+        if choice == "lama":
+            try:
+                from pathlib import Path as _Path
+
+                from mangatl.adapters.inpaint.lama import DEFAULT_MODEL, LamaInpainter
+
+                model = _Path(os.environ.get("MANGATL_LAMA_MODEL", DEFAULT_MODEL))
+                if model.is_file():
+                    return LamaInpainter()
+            except Exception:  # noqa: BLE001 - optional engine
+                pass
+        return MaskedInpainter()
+
+    def _apply_inpainter_choice(self) -> None:
+        if self.editor is not None:
+            self.editor.inpainter = self._make_inpainter()
+            self.statusBar().showMessage(
+                f"擦除引擎：{type(self.editor.inpainter).__name__}"
+            )
 
     def _engines(self) -> dict[str, str]:
         return {key: box.currentText() for key, box in self.engine_boxes.items()}

@@ -486,7 +486,9 @@ class SettingsSheet(QWidget):
             )
         )
         card_layout.addWidget(CaptionLabel("OCR：manga-ocr + MIT48px 融合"))
-        card_layout.addWidget(CaptionLabel("擦除：masked（只擦文字像素）"))
+        card_layout.addWidget(
+            CaptionLabel("擦除：由底部工具栏选择（masked 文字像素 / lama 纹理重建）")
+        )
         layout.addWidget(card)
         layout.addStretch(1)
 
