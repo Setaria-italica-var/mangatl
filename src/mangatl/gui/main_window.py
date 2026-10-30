@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 from qfluentwidgets import (
     Action,
+    CheckBox,
     InfoBar,
     InfoBarPosition,
     RoundMenu,
@@ -156,10 +157,10 @@ class MainWindow(QMainWindow):
         self.btn_view_source.setChecked(True)
         for button in (self.btn_view_source, self.btn_view_erased, self.btn_view_result):
             bar.addWidget(button)
-        self.btn_auto = self._tool_button(
-            FIF.SYNC, "自动预览排版", self._toggle_auto_preview, True
-        )
+        self.btn_auto = CheckBox("实时预览")
+        self.btn_auto.setToolTip("编辑后自动重排当前页（约 350ms 防抖）")
         self.btn_auto.setChecked(True)
+        self.btn_auto.stateChanged.connect(self._toggle_auto_preview)
         bar.addWidget(self.btn_auto)
         bar.addSeparator()
 
@@ -1069,7 +1070,7 @@ class MainWindow(QMainWindow):
         if not self.auto_preview:
             self._preview_timer.stop()
         self.statusBar().showMessage(
-            "自动预览已开启" if self.auto_preview else "自动预览已关闭"
+            "实时预览已开启" if self.auto_preview else "实时预览已关闭"
         )
 
     def _schedule_render(self) -> None:
