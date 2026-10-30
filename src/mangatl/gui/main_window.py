@@ -308,10 +308,10 @@ class MainWindow(QMainWindow):
         layout.setSpacing(0)
 
         rail = QWidget()
-        rail.setFixedWidth(46)
+        rail.setFixedWidth(50)
         rail_layout = QVBoxLayout(rail)
-        rail_layout.setContentsMargins(4, 8, 4, 8)
-        rail_layout.setSpacing(4)
+        rail_layout.setContentsMargins(6, 8, 6, 8)
+        rail_layout.setSpacing(5)
         self.rail_buttons: dict[str, TransparentToolButton] = {}
         for key in SHEET_TITLES:
             if key == "run":
@@ -338,7 +338,8 @@ class MainWindow(QMainWindow):
         ):
             button = TransparentToolButton(icon)
             button.setToolTip(tip)
-            button.setFixedSize(30, 30)
+            button.setFixedSize(38, 38)
+            button.setIconSize(QSize(22, 22))
             button.clicked.connect(slot)
             self.rail_view.append(button)
             rail_layout.addWidget(button)
