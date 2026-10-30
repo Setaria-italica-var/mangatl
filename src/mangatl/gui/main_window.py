@@ -124,16 +124,22 @@ class MainWindow(QMainWindow):
         button.clicked.connect(slot)
         return button
 
-    def _maximize_icon(self) -> QIcon:
-        """Windows-like fullscreen glyph: a plain square outline."""
+    def _fullscreen_icon(self, fullscreen: bool) -> QIcon:
+        """Windows-like glyph: one square when normal, two overlapping when full."""
         pixmap = QPixmap(32, 32)
         pixmap.fill(Qt.GlobalColor.transparent)
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        pen = QPen(QColor("#e6e6e6"), 2.4)
+        pen = QPen(QColor("#e6e6e6"), 2.0)
         pen.setCapStyle(Qt.PenCapStyle.SquareCap)
         painter.setPen(pen)
-        painter.drawRect(7, 7, 18, 18)
+        if fullscreen:
+            # Back window: top-right; front window: bottom-left, filled to occlude.
+            painter.drawRect(11, 7, 14, 14)
+            painter.fillRect(6, 11, 15, 15, QColor("#202020"))
+            painter.drawRect(6, 11, 15, 15)
+        else:
+            painter.drawRect(7, 7, 18, 18)
         painter.end()
         return QIcon(pixmap)
 
@@ -215,14 +221,17 @@ class MainWindow(QMainWindow):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
         )
         bar.addWidget(spacer)
-        fullscreen = QToolButton()
-        fullscreen.setObjectName("ModeButton")
-        fullscreen.setIcon(self._maximize_icon())
-        fullscreen.setIconSize(QSize(18, 18))
-        fullscreen.setFixedSize(30, 30)
-        fullscreen.setToolTip("全屏 (F11)")
-        fullscreen.clicked.connect(self.toggle_fullscreen)
-        bar.addWidget(fullscreen)
+        self.btn_fullscreen = QToolButton()
+        self.btn_fullscreen.setObjectName("ModeButton")
+        self.btn_fullscreen.setIcon(self._fullscreen_icon(False))
+        self.btn_fullscreen.setIconSize(QSize(18, 18))
+        self.btn_fullscreen.setFixedSize(30, 30)
+        self.btn_fullscreen.setToolTip("全屏 (F11)")
+        self.btn_fullscreen.clicked.connect(self.toggle_fullscreen)
+        bar.addWidget(self.btn_fullscreen)
+        edge = QWidget(bar)
+        edge.setFixedWidth(14)
+        bar.addWidget(edge)
 
     # -- canvas / sidebar -------------------------------------------------
     def _build_central(self) -> None:
@@ -1241,10 +1250,15 @@ class MainWindow(QMainWindow):
 
     def toggle_fullscreen(self) -> None:
         """Switch between maximised and true full screen."""
-        if self.isFullScreen():
-            self.showMaximized()
-        else:
+        entering = not self.isFullScreen()
+        if entering:
             self.showFullScreen()
+        else:
+            self.showMaximized()
+        self.btn_fullscreen.setIcon(self._fullscreen_icon(entering))
+        self.btn_fullscreen.setToolTip(
+            "退出全屏 (F11)" if entering else "全屏 (F11)"
+        )
         QTimer.singleShot(50, self.canvas.fit)
 
     def keyPressEvent(self, event) -> None:  # noqa: N802 - Qt name
