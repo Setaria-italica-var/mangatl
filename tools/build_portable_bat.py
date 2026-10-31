@@ -53,6 +53,18 @@ README = """mangatl 便携版（bat 启动）
 4. 整个文件夹可以拷到其它 Windows 电脑；不要单独移动 runtime 目录。
 5. 命令行用法：
    runtime\\python.exe -m mangatl run <项目目录> --stages detect,ocr
+6. 出问题时双击「诊断.bat」，把生成的「诊断结果.txt」发回来。
+"""
+
+DIAG_BAT = """@echo off
+chcp 65001 >nul
+cd /d "%~dp0"
+echo 正在收集环境信息，请稍候…
+runtime\\python.exe "诊断.py" > "诊断结果.txt" 2>&1
+type "诊断结果.txt"
+echo.
+echo 已保存到：%~dp0诊断结果.txt
+pause
 """
 
 
@@ -115,6 +127,8 @@ def main() -> int:
     copy_packages()
     copy_data()
     (DIST / "启动.bat").write_text(BAT, encoding="utf-8")
+    (DIST / "诊断.bat").write_text(DIAG_BAT, encoding="utf-8")
+    shutil.copy2(ROOT / "tools" / "diagnose.py", DIST / "诊断.py")
     (DIST / "使用说明.txt").write_text(README, encoding="utf-8")
     size = sum(path.stat().st_size for path in DIST.rglob("*") if path.is_file())
     print(f"done: {DIST} ({size / 1024 / 1024:.0f} MB)")
