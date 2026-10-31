@@ -1,48 +1,56 @@
 # 发布检查清单
 
-每次公开发布（打 tag 前）逐条勾选，缺一项不发。
+每次公开发布（打 tag 前）逐条检查。当前发布形态：**单目录便携版 + 7z 压缩包 + GitHub Release**，
+没有 exe 安装器，也没有 full/lite 之分。
 
 ## 许可证与合规
 
-- [ ] `LICENSE` 已替换为 GPL-3.0 **全文**（或新增 `COPYING` 全文），保留版权声明。
-- [ ] `NOTICE` 已逐文件登记所有移植代码：来源项目、原路径、原作者、修改说明。
-- [ ] 便携包内含 `source/`（本项目对应版本源码）与 `LICENSE`、`NOTICE`。
-- [ ] Qt/PySide6：`_internal/` 下 Qt DLL 可被用户替换；附 LGPL-3.0 文本与 Qt 版权声明。
-- [ ] `data/models/manifest.json` 与 `LICENSES.txt` 完整：每个模型的名称、来源、许可证、`sha256`、`size` 均为实测值。
-- [ ] 内置字体的 OFL 声明齐全，未重命名分发。
+- [ ] `LICENSE` 为 GPL-3.0 全文
+- [ ] `NOTICE` 登记移植代码、第三方组件和模型许可证
+- [ ] Release 关联源码 tag；GitHub 自动生成的 Source code 压缩包可用
+- [ ] Qt/PySide6 以 LGPL-3.0 动态链接，`runtime/` 内 DLL 可替换
+- [ ] 模型与字体许可证清单齐全，未重命名分发 OFL 字体
+- [ ] 仓库无 API Key、无 `data/`、无漫画样本版权内容
 
 ## 便携性
 
-- [ ] 产物中 `grep` 不到绝对路径、用户名、`AppData`、`Program Files`。
-- [ ] 放在只读目录启动 → 明确提示并退出，不产生半截文件。
-- [ ] 同目录双开 → 第二个激活第一个；不同目录双开 → 互不干扰。
-- [ ] 解压到中文路径、含空格路径、深层路径各跑一遍完整流程。
-- [ ] 整个目录重命名 / 换盘符 / 拷到另一台机器后，项目仍能打开。
-- [ ] 删除 `cache/`、`logs/`、`state/`、`secrets.enc` 后均能正常启动。
+- [ ] 产物中搜索不到 `C:\Users\...`、`AppData`、`Program Files` 等绝对路径
+- [ ] 解压到中文路径、含空格路径、深层路径各启动一次
+- [ ] 整个目录改名 / 换盘 / 拷到另一台没装 Python 的 Windows 能启动
+- [ ] 删除 `data/tmp/`、`data/hf/` 后能正常启动
+- [ ] 只读目录启动时给出明确提示，而不是半截写入
+- [ ] `启动.bat` 的 CRLF、UTF-8 无 BOM 正确
 
 ## 版本与配置
 
-- [ ] 降级测试：用新版本生成的 `config.json` 启动旧版本 → 只读不写、有提示。
-- [ ] 旧项目（上一 schema）能直接打开，字段迁移不丢数据。
-- [ ] `config.json` 与项目 JSON 的写入均为原子替换（断电测试：杀进程后文件不损坏）。
+- [ ] `pyproject.toml` 的 version 与 tag 一致
+- [ ] `settings.json` 缺失/损坏时能回退默认值
+- [ ] `project.json` 原子写入；旧 schema 能打开或给出明确错误
+- [ ] `data/secrets.bin` 换用户/换机器后不会导致崩溃，只提示重填 Key
+- [ ] `requirements.txt` 能通过 `setup.bat` 在新 runtime 上装好
 
 ## 质量门槛
 
-- [ ] 竖排 8 条回归用例（`docs/design.md` §7.7）golden 图全绿。
-- [ ] 抽检 30 页：排版可读 ≥ 90%，抹字明显残留 ≤ 10% 页。
-- [ ] 180 页整本连续跑通，记录：总耗时、显存峰值、token 与费用。
-- [ ] 翻译 JSON 合法率 100%（含重试后），块 ID 对齐 100%。
-- [ ] CPU-only 机器能跑完一页（慢但不出错）。
+- [ ] `runtime\Scripts\ruff.exe check .` 通过
+- [ ] 相关 pytest 通过；至少 `test_paths.py`、`test_encoding.py`、`test_gui_audit.py`
+- [ ] 用 `samples/vol1` 跑通：打开 → 检测 → OCR → 翻译（echo）→ 擦除 → 排版
+- [ ] 手动擦除：左键擦除、右键恢复、大小、快速/精细、最小化、画面外笔迹
+- [ ] 批量：范围、阶段、跳过已完成、停止、失败重试
+- [ ] CPU-only 机器跑完一页；断网时给出可读错误
+- [ ] 抽查 30 页：排版可读、无明显残留文字
 
 ## 材料与分发
 
-- [ ] `使用说明.txt` 已更新：SmartScreen 提示、API Key 说明、目录要求、快捷键。
-- [ ] 生成 `MangaTL-portable-{full,lite}-vX.Y.Z.zip` 与同名 `.sha256`。
-- [ ] zip 内 `data/models/` 为可选（full 版内置，lite 版为空目录 + 下载引导）。
-- [ ] Git 仓库无密钥、无测试漫画、无模型权重、无 `data/` 目录。
-- [ ] 打 tag `vX.Y.Z`，Release 说明包含：变更、已知问题、校验和、源码链接。
+- [ ] `docs/release-notes-vX.Y.Z.md` 已更新：变更、安装、已知问题、校验
+- [ ] `启动.bat`、`诊断.bat`、`使用说明.txt` 已随包更新
+- [ ] `tools/pack_release.ps1` 生成压缩包和 `SHA256SUMS.txt`
+- [ ] 压缩包大小 < 2 GB（否则用 `-VolumeMB 900` 分卷）
+- [ ] 在干净 Windows 上解压、启动、打开样例、跑一页
+- [ ] 打 tag `vX.Y.Z` 并推送
+- [ ] GitHub Release：选择 tag、贴说明、上传压缩包和 SHA256，发布
 
 ## 发布后
 
-- [ ] 在一台**没装过 Python** 的 Windows 机器上解压试跑（这是最容易漏的一步）。
-- [ ] 收集首日崩溃日志，确认无 `engine` 启动失败的高频问题。
+- [ ] 下载 Release 附件，重新校验 SHA256
+- [ ] 检查 Release 页面下载链接和安装说明可读
+- [ ] 收集首日启动失败/崩溃日志，确认无高频环境问题

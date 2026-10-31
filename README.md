@@ -1,132 +1,202 @@
 # mangatl
 
-**一键化本地漫画翻译：检测 → OCR → LLM 翻译 → 擦除原文 → 按原样式嵌字（含竖排）。**
+本地漫画翻译桌面工具：**检测 → OCR → 翻译 → 擦除原文 → 中文排版**，日文竖排优先，也支持英文。
 
-桌面 GUI，便携版（解压即用）。日→中为主，兼英→中。
+Windows 10/11 x64 · v0.3.0 · GPL-3.0
 
-> 状态：**设计阶段（v0.3）**。架构与契约已冻结，代码尚未开始实现。
-> 设计文档见 [`docs/design.md`](docs/design.md)。
+> 当前版本是可用的 MVP：核心流程、桌面编辑器、批量任务和便携版都已跑通；
+> 不是成熟的商业产品，复杂页面仍可能需要手工校对。
 
-## 快速开始（项目自带运行时）
+## 能做什么
 
-仓库内含 `runtime\`（Python 3.12 + PySide6 / torch / onnxruntime 等），无需另装 Python：
+| 环节 | 实现 |
+|---|---|
+| 检测 | comic-text-detector（CTD），框 + 文字掩膜 + 气泡/拟声词角色 |
+| OCR | manga-ocr（日文，含竖排）、RapidOCR、MIT48px 多套引擎可选 |
+| 翻译 | 任意 OpenAI 兼容接口：DeepSeek、OpenAI、OpenRouter、Ollama、LM Studio、llama.cpp；也可选“回显原文”离线占位 |
+| 擦除 | 纯色气泡快路径 + masked 扩散 + LaMa 修复；支持整页擦除和手动画笔 |
+| 排版 | 字号自适应、中英断行、标点禁则、描边、旋转、竖排 |
+| 编辑 | 画布逐块编辑，原文/译文/角色/样式改动实时应用 |
+| 批量 | 页码范围、阶段勾选、断点续跑、子进程存活监测、失败重试 |
+| 便携 | 内置 Python runtime，解压即用；数据和配置全在程序目录 |
+
+## 下载与启动
+
+从 [Releases](https://github.com/Setaria-italica-var/mangatl/releases) 下载：
+
+- `mangatl-portable-v0.3.0.7z`（约 1.86 GB，已内置模型和运行时）
+- `SHA256SUMS.txt`
+
+使用：
+
+1. 安装 [7-Zip](https://www.7-zip.org/)（已安装可跳过）
+2. 解压 `mangatl-portable-v0.3.0.7z` 到任意**有写入权限**的目录，例如 `D:\Tools\MangaTL`
+3. 双击 `启动.bat`
+4. 启动失败时运行 `诊断.bat`，生成的环境信息在 `诊断结果.txt`
+
+不要放在 `C:\Program Files` 或只读目录，程序需要往 `data\` 写配置和缓存。
+
+## 第一次使用
+
+1. **打开漫画文件夹**：只支持图片目录（`.png` / `.jpg` / `.jpeg` / `.webp` / `.bmp`），不支持 CBZ/PDF/EPUB
+2. **选引擎**：底部栏分别是检测、OCR、擦除、翻译；默认 `ctd` / `mit_manga` / `masked` / `openai`
+3. **配置翻译**：点右侧齿轮（`Ctrl+,`）
+   - 云端：选「DeepSeek 云端」，填 API Key，或选「自定义」填任意 OpenAI 兼容地址
+   - 本地：Ollama / LM Studio / llama.cpp，填对应地址和模型名
+   - 没有 Key：选「回显原文（不翻译）」，可先验证检测、擦除和排版
+   - 勾选「记住 Key」会用 Windows DPAPI 加密到 `data\secrets.bin`，仅当前用户可解
+4. **运行**：右侧「运行」→「运行当前页」或「开始批量」
+5. **校对**：右侧「编辑」面板改原文/译文/样式，停止输入约 300ms 后自动保存并重绘
+6. **导出**：结果就在漫画目录的 `result\` 下，按原文件名保存
+
+## 界面速览
+
+- 左侧：页面缩略图列表
+- 中间：画布，支持缩放、平移、框选、拖拽文本框
+- 右侧：编辑 / 运行 / 搜索 等模块；设置固定在图标栏最下方
+- 顶部：打开、保存、选择工具、三种预览、全屏、最小化、关闭
+
+预览切换：
+
+| 视图 | 快捷键 | 显示 |
+|---|---|---|
+| 原图 | `Ctrl+1` | 原始页面 + 检测框，可选中文本块 |
+| 擦除后 | `Ctrl+2` | `inpainted/` + 红色已擦除区域，只做区域选区 |
+| 排版结果 | `Ctrl+3` | `result/` + 文字框，可拖动调整 |
+
+常用快捷键：
+
+| 快捷键 | 动作 |
+|---|---|
+| `Ctrl+S` | 保存 `project.json` |
+| `Ctrl+Z` | 撤销 |
+| `Ctrl+1/2/3` | 原图 / 擦除后 / 排版结果 |
+| `Ctrl+,` | 设置 |
+| `Ctrl+G` | 跨页搜索 |
+| `PageUp/PageDown` | 上一页 / 下一页 |
+| `B` | 擦除视图中回到画笔 |
+
+## 擦除视图的悬浮工具条
+
+进入「擦除后」时，画布左上角会出现可拖动的工具条：
+
+- **左键拖动**：橡皮，红色笔迹，松手后按当前引擎填充
+- **右键拖动**：恢复，青色笔迹，把**原图像素**贴回笔迹区域
+- 大小 4–200px；引擎下拉「快速 / 精细」，默认快速
+- 处理时工具条内显示进度和「取消」，不弹模态窗
+- 最右侧「—」最小化成一个展开图标；短按还原，按住拖动仍可移动
+- 离开擦除视图时隐藏，位置不写入配置，重启回到左上角默认位置
+
+## 从源码运行
+
+仓库不提交 `runtime/` 和 `data/models/`（体积原因）。首次从源码运行：
+
+1. 下载便携版并解压
+2. 把便携版的 `runtime\` 和 `data\models\` 复制到仓库根目录
+3. 运行 `setup.bat` 更新依赖（需要系统 Python 3.12）
+4. 运行 `启动.bat`
+
+之后启动只依赖 `runtime\python.exe`，不需要系统 Python。
+
+常用命令：
 
 ```bat
-launch.bat
-```
-
-命令行：
-
-```bat
-runtime\python.exe -m mangatl --help
-```
-
-依赖清单：[`requirements.txt`](requirements.txt)。更新依赖只需改这个文件后运行：
-
-```bat
-setup.bat
-```
-
-启动脚本（`launch.bat` / `启动.bat`）只做环境校验和启动 GUI，不包含依赖列表。
-改了 `src\mangatl` 后同步到 runtime：
-
-```bat
+runtime\python.exe -m mangatl gui samples\vol1
+runtime\python.exe -m mangatl run samples\vol1 --stages detect,ocr,translate,erase,render
+runtime\python.exe -m mangatl fetch-models --lama
 runtime\python.exe tools\sync_runtime.py
 ```
 
-便携版构建：
+`run` 默认使用 `openai` 翻译，需要 Key；只想验证流程可以加 `--translator echo`。
+
+## 目录结构
+
+```
+mangatl/
+├─ 启动.bat                 # 主启动脚本（仓库和便携版通用）
+├─ setup.bat                # 首次安装/更新 runtime
+├─ runtime/                 # 内置 Python 3.12 + 依赖（不提交 Git）
+├─ data/                    # 配置、模型、缓存、密钥（不提交 Git）
+├─ src/mangatl/
+│  ├─ gui/                  # PySide6 界面
+│  ├─ core/                 # 流水线编排、阶段状态、断点
+│  ├─ domain/               # Page / TextBlock / Project
+│  ├─ adapters/             # 检测 / OCR / 翻译 / 擦除
+│  ├─ render/               # 横排、竖排、断行、字体测量
+│  ├─ io/                   # 设置、密钥、缓存
+│  ├─ engine/               # 引擎进程辅助
+│  └─ cli/                  # 命令行与后台 task-worker
+├─ samples/vol1/            # 10 页示例
+├─ tools/                   # 环境检查、同步、打包、诊断
+├─ tests/                   # pytest
+└─ docs/                    # 设计与使用文档
+```
+
+漫画项目目录（用户打开的文件夹）会生成：
+
+```
+<漫画目录>/
+├─ project.json             # 页面、文本块、阶段状态（原子写入）
+├─ inpainted/               # 擦除后的页面
+└─ result/                  # 排版结果
+```
+
+## 架构
+
+```
+GUI (PySide6)
+ ├─ QProcess ──> mangatl run ...       批量 / 单页流水线
+ ├─ QProcess ──> mangatl task-worker   局部重绘 / 重识别 / 翻译 / 重检测
+ └─ core.PipelineService ──> adapters (CTD / OCR / 翻译 / 擦除) + render
+```
+
+- `core/`、`domain/`、`adapters/`、`render/`、`io/` 不依赖 PySide6，GUI 只是调用方
+- 模型推理放在子进程，界面线程不加载模型；重任务可取消，不阻塞窗口
+- 排版只有一份实现，画布预览和导出使用同一套渲染器
+- 项目状态每页落盘，崩溃或关闭后可以继续
+
+## 已知限制
+
+- **仅 Windows 10/11 x64**；没有 macOS/Linux 打包
+- **CPU 推理**，无 CUDA 加速；LaMa 首次加载约 15–35 秒，之后复用
+- 不支持 CBZ/PDF/EPUB，只能打开图片文件夹
+- 云端翻译必须自备 API Key；本地模型需要自己启动 Ollama / LM Studio / llama.cpp
+- 手绘拟声词、复杂背景和超大页面可能需要手工修正
+- 界面和提示目前仅中文
+
+## 开发
+
+```bat
+runtime\Scripts\ruff.exe check .
+runtime\python.exe -m pytest
+```
+
+工程约定见 [`AGENTS.md`](AGENTS.md)：分层依赖、单文件 ≤ 800 行、JSON 原子写入、
+遥测与隐私限制。完整测试套件较慢，提交前至少跑 `tests/test_paths.py`、
+`tests/test_batch_plan.py` 和与改动相关的测试。
+
+构建便携版：
 
 ```bat
 runtime\python.exe tools\build_portable_bat.py
 ```
 
----
+生成 `dist\mangatl-portable\`；发布前用 `tools\pack_release.ps1` 压缩并生成校验。
 
-## 它解决什么问题
+## 文档
 
-现有开源方案（manga-image-translator、BallonsTranslator 等）能跑通流程，但普遍存在两个问题：
+- [用户说明（详细版）](docs/user-guide.md)
+- [界面与交互](docs/gui.md)
+- [Windows 开发环境](docs/setup-windows.md)
+- [便携版数据契约](docs/portable-data-contract.md)
+- [启动器说明](docs/launcher.md)
+- [v0.3.0 发布说明](docs/release-notes-v0.3.0.md)
+- [架构设计（早期设计文档，部分内容已实现）](docs/design.md)
 
-1. **嵌字是"贴上去的"**：字号、断行、标点、竖排都不够讲究，成品需要大量手工返工。
-2. **架构把你锁死**：要么绑死 Qt（headless 也要拉起整套窗口），要么是几千行的脚本，二次开发成本高于重写。
+## 许可证与声明
 
-mangatl 的取舍：
+- 项目以 **GPL-3.0** 发布
+- Qt / PySide6 以 LGPL-3.0 动态链接
+- 第三方组件、模型和移植代码来源见 [`NOTICE`](NOTICE)
 
-- **排版是一等公民**：中文竖排按真正的竖排规则排——列推进、列首/列尾禁则、`。、` 右上定位、括号与长音旋转、纵中横/回転。
-- **core 不 import Qt**：GUI 只是订阅者，CLI 与批处理共用同一条流水线。
-- **两个进程**：模型跑在独立 engine 进程里，OOM 与崩溃不拖垮界面。
-- **渲染只有一份实现**：画布上看到的像素，就是导出的像素。
-
-## 特性
-
-- 文本检测：comic-text-detector（框 + 行四边形 + 文字掩膜）
-- OCR：日文 manga-ocr（竖排）/ 英中等 PP-OCRv5
-- 翻译：任意 OpenAI 兼容端点（DeepSeek / OpenAI / OpenRouter / Ollama / vLLM），术语表 + 上下文 + 成本统计
-- 擦除：纯色气泡快路径 + LaMa 修复，掩膜自检
-- 排版：字号自适应、中英断行、禁则、描边、角度、竖排
-- 校对：画布 + 逐块编辑 + 单页重渲染（< 300 ms）
-- 便携：单 zip，数据全在程序目录，无注册表、无管理员权限
-
-## 架构
-
-```
-GUI (PySide6)  ──命令/事件──  engine 进程（无 Qt）
-项目│运行│校对│设置│导出       PipelineService: load→detect→ocr→translate→erase→render
-                               ModelPool / 四类适配器注册表
-                                            │
-                               data/ (配置/模型/字体) + projects/ (项目)
-```
-
-详细设计：[`docs/design.md`](docs/design.md)（含竖排规格、8 GB 显存档位、里程碑）。
-便携版数据契约：[`docs/portable-data-contract.md`](docs/portable-data-contract.md)。
-
-## 目录
-
-```
-src/mangatl/
-  core/      流水线编排：阶段状态机、断点、取消、预算
-  domain/    Page / TextBlock / TextStyle / ProjectStore
-  adapters/  detectors / ocr / inpaint / translators（注册表 + Protocol）
-  render/    横排与竖排布局、断行、字体测量、光栅化
-  io/        CBZ / 文件夹 / 缓存
-  engine/    引擎进程：server / protocol / model_pool
-  gui/       PySide6 界面
-  cli/       命令行
-docs/        设计文档、便携版契约、用户说明、调研笔记
-```
-
-## 路线图
-
-| 阶段 | 内容 | 状态 |
-|---|---|---|
-| M0 | 10 页样本 spike，验证抹字与竖排 | 未开始 |
-| M1 | core + engine + CLI + 断点 | 未开始 |
-| M2 | 横/竖排版 + 校对骨架 | 未开始 |
-| M3 | 完整 GUI + 便携打包 | 未开始 |
-
-## 开发
-
-从零搭建（Python/venv、镜像与代理、SSH 推送、故障对照表）见 **[docs/setup-windows.md](docs/setup-windows.md)**。
-
-```bat
-py -3.12 -m venv .venv
-.venv\Scripts\activate.bat
-python -m pip install -e ".[dev]"
-python -m pytest
-```
-
-要求 Python 3.12（3.11 亦可）；GPU 可选（CUDA 12 推荐，CPU 慢 3–5 倍）。
-
-工程约定见 [`AGENTS.md`](AGENTS.md)——尤其是「core 不得 import Qt」与「单文件 ≤ 800 行」。
-
-## 许可证
-
-GPL-3.0。完整源码随二进制分发（便携包里带 `source/`）。
-Qt/PySide6 以 LGPL-3.0 动态链接。
-
-第三方组件、移植代码来源与模型许可见 [`NOTICE`](NOTICE)。
-
-## 免责声明
-
-- 机翻结果仅供个人阅读参考；公开分享时请显著标注「机翻」。
-- 请勿用于侵犯版权或违反所在地区法律的用途。
-- 翻译需自备 API Key，Key 默认不落盘。
+机翻结果仅供个人阅读参考；公开分享请标注「机翻」。请勿用于侵权或违反当地法律的用途。

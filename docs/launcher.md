@@ -1,131 +1,109 @@
-# 一键启动（launch.bat / tools/launcher.py）
+# 启动与安装脚本
 
-不再提供 exe：单文件版需要在系统临时目录解压，公司电脑/杀软环境下容易被拦；
-目录版又和直接跑脚本没区别。现在统一用 **launch.bat**，功能完全一致。
+项目不再提供 exe。仓库和便携版都使用同一套 bat 脚本，依赖版本只写在
+`requirements.txt` / `requirements-dev.txt`，改依赖不需要改启动器。
 
-## 使用
+## 文件职责
 
-```bat
-launch.bat                :: 双击，或从命令行运行
-launch.bat --check        :: 只体检，不安装、不启动
-launch.bat samples\vol1   :: 指定漫画目录
-```
+| 文件 | 作用 |
+|---|---|
+| `启动.bat` | 主入口：设置项目根目录 → 检查 `runtime\python.exe` → 运行 `tools/check_env.py` → 启动 `mangatl gui` |
+| `launch.bat` | 英文别名，直接调用 `启动.bat` |
+| `setup.bat` | 首次安装/更新 `runtime\Lib\site-packages`，调用 `tools/setup_env.py` |
+| `诊断.bat` | 便携版专用：生成环境诊断文件；仓库源码用 `runtime\python.exe tools\diagnose.py` |
+| `tools/check_env.py` | 校验依赖版本、模型文件和可导入性；失败时给出缺失项 |
+| `tools/setup_env.py` | 用系统 Python 3.12 作为安装器，按 requirements 安装到 `runtime\` |
+| `tools/sync_runtime.py` | 把 `src/mangatl` 同步到 `runtime\Lib\site-packages\mangatl` |
 
-也可以直接：
+## 首次安装
 
-```bat
-.venv\Scripts\python.exe tools\launcher.py
-```
-
-## 启动器做什么
-
-1. 找 Python：`runtime\python`（内置运行时）→ `.venv` → 系统 `python`/`py`（≥3.10）
-2. 没有虚拟环境时用系统 Python 创建 `.venv`
-3. 检查依赖：PySide6、qfluentwidgets、numpy、Pillow、onnxruntime、torch、mangatl
-4. 缺依赖：优先从 `wheels\` 离线安装，否则在线 `pip install -e .[gui]`
-5. 检查模型：CTD、气泡检测、MIT48px OCR 与字典
-6. 缺模型：调用 `python -m mangatl fetch-models`
-7. 启动 `python -m mangatl gui`
-
-失败会打印原因并暂停，窗口不会一闪而过；日志写在 `mangatl-launcher.log`，
-未捕获异常写 `mangatl-launcher-crash.log`。
-
-## 便携部署结构
-
-```
-mangatl\
-├─ launch.bat                ← 双击
-├─ pyproject.toml
-├─ src\mangatl\...
-├─ data\models\...           ← 模型（可预先放好）
-├─ wheels\                   ← 可选：离线 wheel 包
-├─ .venv\                    ← 可选：已装好的环境
-└─ tools\launcher.py
-```
-
-整个 `mangatl` 文件夹拷到 U 盘即可，不需要安装程序。
-
-## 离线安装依赖
-
-在联网机器上：
+要求：Windows 10/11 x64，系统 Python 3.12（仅安装时需要）。
 
 ```bat
-pip download -d wheels -e .[gui]
+setup.bat
 ```
 
-把 `wheels\` 一起拷过去，启动器会先用 `--no-index --find-links wheels` 安装。
+脚本会：
 
-## 私有 pip 源
+1. 查找 `py -3.12` / `python3.12` / `python`（可用 `MANGATL_BOOTSTRAP_PYTHON` 指定）
+2. 确认 `runtime\` 已存在（便携包自带；新克隆仓库需先从便携包复制）
+3. `pip install --target runtime\Lib\site-packages -r requirements.txt`
+4. 安装完成后由 `check_env.py` 验证
+
+需要开发依赖（ruff、pytest）：
 
 ```bat
-set MANGATL_PIP_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
-launch.bat
+setup.bat --dev
 ```
 
-## 项目内运行时（开发与便携共用）
-
-仓库自带 `runtime\`（CPython 3.12 + 全部依赖 + mangatl 包），不需要 `.venv`：
+## 日常启动
 
 ```bat
-cd /d "<仓库目录>"
-runtime\python.exe -V
-runtime\python.exe -m mangatl --help
-runtime\Scripts\ruff.exe check .
-launch.bat
+启动.bat
+启动.bat samples\vol1
 ```
 
-改了 `src\mangatl` 后同步到 runtime：
+也可以直接调用：
+
+```bat
+runtime\python.exe -m mangatl gui samples\vol1
+```
+
+`启动.bat` 会设置：
+
+```bat
+MANGATL_HOME=<程序目录>
+PYTHONUTF8=1
+PYTHONIOENCODING=utf-8
+```
+
+所以配置、模型、缓存都在程序目录，不写注册表和 `%APPDATA%`。
+
+## 更新依赖
+
+1. 修改 `requirements.txt`
+2. 运行 `setup.bat`
+3. 重新运行 `check_env.py` 或直接启动
+
+## 更新源码
+
+仓库开发时改完 `src/mangatl` 后：
 
 ```bat
 runtime\python.exe tools\sync_runtime.py
 ```
 
-`tools\build_portable_bat.py` 直接复制这个 `runtime\`，不再从 `.venv` 安装依赖。
+便携版发布时由 `tools/build_portable_bat.py` 复制源码和 runtime。
 
-### 依赖与启动脚本的职责
+## 诊断
 
-| 文件 | 职责 |
+```bat
+诊断.bat
+```
+
+会输出 Python 版本、关键依赖、模型文件、路径和导入错误到 `诊断结果.txt`。仓库源码可运行
+`runtime\python.exe tools\diagnose.py > 诊断结果.txt`。
+GUI 未捕获异常写入 `data\error.log`。
+
+## 常见错误
+
+| 现象 | 处理 |
 |---|---|
-| `requirements.txt` | 唯一的运行时依赖清单（含版本号） |
-| `requirements-dev.txt` | 开发依赖（pytest / ruff） |
-| `setup.bat` | 读取清单，用系统 Python 3.12 的 pip 装到 `runtime\Lib\site-packages`，然后同步应用代码 |
-| `启动.bat` | **只做**：检查 runtime 存在 → `check_env.py` 校验依赖/模型 → 启动 GUI |
-| `launch.bat` | 英文别名，直接 `call 启动.bat`，不再维护第二份实现；便携包只带 `启动.bat` |
+| `缺少 runtime\python.exe` | 重新解压便携包，或确认 `setup.bat` 成功 |
+| `环境检查未通过` | 看 `check_env.py` 输出的缺失依赖，运行 `setup.bat` |
+| `找不到可用的 Python 3.12` | 安装 Python 3.12，或设置 `MANGATL_BOOTSTRAP_PYTHON` |
+| 双击闪退 | 在 cmd 里运行 `启动.bat` 看错误；再运行 `诊断.bat` |
+| 依赖下载慢/失败 | 配置 pip 镜像或代理后重试 `setup.bat` |
 
-所以以后升级依赖：改 `requirements.txt` → 运行 `setup.bat`。**不用改 bat，也不用重新打包脚本。**
-`check_env.py` 会按清单里的版本号逐一比对，版本不符会提示运行 `setup.bat`。
-
-## 模型下载
-
-- 必需模型缺失时启动器自动调用 `fetch-models`
-- 可选 LaMa 局部重绘权重（约 208 MB，支持断点续传）：
-
-```bat
-runtime\python.exe -m mangatl fetch-models --lama
-```
-
-
-## 便携版（bat 启动）
-
-PyInstaller 单文件/单目录方案在部分机器上会秒退，便携版改为 **内嵌 Python + bat**：
-
-```bat
-runtime\python.exe tools\build_portable_bat.py
-```
-
-产物在 `dist/mangatl-portable/`（约 3.5 GB，含模型）：
+## 便携包结构
 
 ```
-启动.bat                    双击即用；也可 启动.bat "你的漫画目录\vol1"
-runtime/                    内嵌 CPython 3.12 + 全部依赖（含 torch、PySide6、pywin32）
-runtime/Lib/site-packages/  依赖与 mangatl 包
-data/models/                CTD、MIT48、manga-ocr、气泡、LaMa
-data/hf/                    manga-ocr 的 Hugging Face 快照
-使用说明.txt
+mangatl-portable/
+├─ 启动.bat
+├─ 诊断.bat
+├─ 使用说明.txt
+├─ requirements.txt
+├─ runtime/            Python + 依赖 + mangatl 包
+├─ data/               模型、设置、缓存
+└─ tools/              check_env / diagnose
 ```
-
-- 不写注册表、不装系统 Python；整个文件夹可拷到其它 Windows 电脑
-- 模型路径相对程序目录；翻译 Key 用 DPAPI 加密存 `data/secrets.bin`（绑定当前 Windows 用户）
-- 内嵌 Python 的 `python312._pth` 必须包含 `Lib\site-packages`、pywin32 目录和 `import site`，
-  否则 `qfluentwidgets` 找不到 `win32api`
-- `runtime\python.exe -m mangatl run <目录> ...` 可当命令行版使用

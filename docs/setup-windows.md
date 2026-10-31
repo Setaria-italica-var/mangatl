@@ -1,237 +1,165 @@
-# Windows 开发环境搭建（从零开始）
+# Windows 开发与运行环境
 
-> **现在优先用项目自带的 `runtime\`**，不再需要单独装 Python 或建 `.venv`：
->
-> ```bat
-> cd /d "<仓库目录>"
-> runtime\python.exe -V
-> runtime\python.exe -m pytest
-> runtime\Scripts\ruff.exe check .
-> launch.bat
-> ```
->
-> `runtime\Lib\site-packages` 已包含 PySide6 / torch / onnxruntime / pytest / mangatl，
-> 便携版直接复制这个目录。下面的 venv 流程仅作为旧环境参考。
+## 0. 两条路径
 
+| 场景 | 做法 |
+|---|---|
+| 只想运行 | 解压便携版，双击 `启动.bat`；不需要装 Python |
+| 改代码 / 跑测试 | 需要系统 Python 3.12 执行一次 `setup.bat`，之后仍用 `runtime\python.exe` |
 
-> 目标：一台没装过 Python 的 Windows 10/11，30 分钟内能跑测试、能推 GitHub。
-> 全程不需要管理员权限。
+仓库里的 `runtime\` 就是实际运行环境：Python 3.12 + `requirements.txt` 里的依赖 +
+`mangatl` 包。启动器不会使用系统 Python（除了 `setup.bat` 首次安装）。
 
-## 0. 检查家底
+> **新克隆的仓库没有 `runtime\`**（已在 `.gitignore` 中）。开始前先下载便携版，
+> 把它的 `runtime\` 和 `data\models\` 复制到仓库根目录；否则 `setup.bat` 会提示
+> 缺少 runtime。
 
-打开 **cmd**（不是 PowerShell，命令更通用）：
+## 1. 检查系统
+
+- Windows 10/11 64 位
+- 磁盘至少 6 GB 可用（runtime + 模型 + 项目输出）
+- 联网（首次装依赖、下载模型/翻译请求）
 
 ```bat
-where py
-py -0p
+py -3.12 -V
 ```
 
-- 有 `py` 且列出 `-V:3.12` → 可直接用
-- 没有 3.12 → 装 [Python 3.12.10](https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe)，装时勾 **py launcher**
-- 不要用 3.14 跑本项目：torch / onnxruntime 的 cp314 轮子覆盖不全
+如果没有 `py -3.12`，安装 [Python 3.12](https://www.python.org/downloads/windows/)，
+安装时勾选 Python Launcher。
 
-> 如果敲 `python` 弹出微软商店或提示"不是内部或外部命令"：
-> 设置 → 应用 → 高级应用设置 → **应用执行别名** → 关掉 `python.exe`、`python3.exe`。
-> 之后一律用 `py -3.12` 或激活 venv 后的 `python`，不要依赖系统 PATH 里的裸 `python`。
+> 不要用 Python 3.14：torch / onnxruntime 的 cp314 轮子覆盖不全。
 
-## 1. 进项目、建 venv
+## 2. 初始化 runtime
 
 ```bat
 cd /d <仓库目录>
-py -3.12 -m venv .venv
-.venv\Scripts\activate.bat
-python -V
+setup.bat
 ```
 
-提示符应变成 `(runtime) <仓库目录>>`，`python -V` 应输出 `Python 3.12.10`。
-**每次新开窗口都要重新执行 `.venv\Scripts\activate.bat`。**
+`setup.bat` 调用 `tools/setup_env.py`：
 
-## 2. 选一条装依赖的路
+1. 查找 `py -3.12` / `python3.12` / `python`
+2. 确认仓库内 `runtime\` 存在
+3. 按 `requirements.txt` 安装到 `runtime\Lib\site-packages`
+4. 完成后可直接启动
 
-### 0. uv（**本机实测唯一一次就通**，推荐）
-
-uv 用自己的 HTTP 栈，不经过 pip 的 TLS/证书路径，能绕开 pip 26 在 Windows 上的静默挂起。
+需要 ruff / pytest：
 
 ```bat
-py -3.12 -m pip install uv --index-url https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
-set UV=%LOCALAPPDATA%\Programs\Python\Python312\Scripts\uv.exe
-"%UV%" --version
+setup.bat --dev
 ```
+
+如果下载慢，先设置 pip 镜像再运行：
 
 ```bat
-cd /d <仓库目录>
-set UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
-set UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-"%UV%" venv --clear --python 3.12 .venv
-"%UV%" pip install --python .venv\Scripts\python.exe -e ".[dev]"
+set PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+set PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
+setup.bat
 ```
 
-注意两点：`uv venv` **默认不装 pip**（venv 里没有 `pip` 命令是正常的），依赖统一用 `%UV% pip install` 管理；`--python` 一定要显式指向 venv，不依赖当前激活状态。
-
-### A. 镜像（pip 路线）
+需要代理时：
 
 ```bat
-set PIP_CONFIG_FILE=NUL
-python -m pip install -e ".[dev]" ^
-  --index-url https://pypi.tuna.tsinghua.edu.cn/simple ^
-  --trusted-host pypi.tuna.tsinghua.edu.cn ^
-  --timeout 30 --retries 2
+set HTTPS_PROXY=http://127.0.0.1:7890
+set HTTP_PROXY=http://127.0.0.1:7890
+setup.bat
 ```
 
-`PIP_CONFIG_FILE=NUL` 让 pip 忽略 `%APPDATA%\pip\pip.ini`——那个文件常被安全软件锁成只读，读它容易带进意料外的源。
-
-### B. 官方源 + 代理（需要节点能下 Fastly）
-
-先验 30 秒，确认节点对 `files.pythonhosted.org` 不是零吞吐：
+## 3. 校验与启动
 
 ```bat
-curl -s --proxy http://127.0.0.1:7897 https://pypi.org/simple/six/ | findstr whl
-curl -o NUL --max-time 30 -w "code=%{http_code} speed=%{speed_download}\n" ^
-  --proxy http://127.0.0.1:7897 "<上一步的 wheel 地址>"
+runtime\python.exe tools\check_env.py
+启动.bat
 ```
 
-`speed` 明显大于 0（比如几十万字节/秒）才继续：
+`check_env.py` 会检查依赖版本、模型和 `mangatl` 导入；缺什么会直接打印。
+便携版启动失败会提示运行 `诊断.bat`；源码环境可运行 `runtime\python.exe tools\diagnose.py`。
+
+直接跑 GUI / CLI：
 
 ```bat
-set PIP_CONFIG_FILE=NUL
-python -m pip install -e ".[dev]" ^
-  --index-url https://pypi.org/simple ^
-  --proxy http://127.0.0.1:7897 ^
-  --timeout 30 --retries 2
+runtime\python.exe -m mangatl gui samples\vol1
+runtime\python.exe -m mangatl run samples\vol1 --translator echo --force
 ```
 
-注意：代理必须写 `http://`，不是 `https://`；Clash 要切「全局 / Global」。
-
-### `-e .` 静默卡住
-
-**现象**：`pip install -e ".[dev]"` 无任何输出、也不报错；`Ctrl+C` 后日志里只有 `ERROR: Operation cancelled by user`。
-**根因（实测）**：venv 里是 **pip 26.2.2**，它在 Windows 上走系统证书库（vendored truststore）会挂死；同一解释器用 `urllib` 取 PyPI 却返回 200。
-**做法**：把 venv 的 pip 换回 25 或更早（见文末「pip 26 在 Windows 上会静默挂起」），然后**用默认的 build isolation 直接装**，不需要 `--no-build-isolation`：
+## 4. 开发循环
 
 ```bat
-python -m pip install -e ".[dev]" --index-url https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
+runtime\python.exe tools\sync_runtime.py
+runtime\Scripts\ruff.exe check .
+runtime\python.exe -m pytest tests\test_paths.py
 ```
 
-只有当你想跳过隔离环境时才加 `--no-build-isolation`，并且要先补齐 hatchling 的全部依赖，否则会报 `ModuleNotFoundError: No module named 'editables'`：
+改完 `src/mangatl` 后必须同步到 runtime，否则 `runtime\python.exe -m mangatl`
+仍会加载旧代码。GUI 开发通常直接跑：
 
 ```bat
-python -m pip install hatchling editables packaging pathspec pluggy trove-classifiers
-python -m pip install -e ".[dev]" --no-build-isolation
+runtime\python.exe -m mangatl gui samples\vol1
 ```
 
-## 3. 验证
+完整测试套件较大，建议先跑与改动相关的文件，再跑全量。
+
+## 5. 模型
+
+模型在 `data\models\`：
+
+```
+comictextdetector.pt.onnx   检测
+bubble_detector.onnx        气泡
+lama.onnx                   精细擦除（可选，约 200 MB）
+mit/                        OCR 资源
+```
+
+缺少 LaMa 时：
 
 ```bat
-python -c "import mangatl; print(mangatl.__version__)"
-python -m ruff check .
-python -m pytest
+runtime\python.exe -m mangatl fetch-models --lama
 ```
 
-预期：
-
-```
-0.3.0.dev0
-All checks passed!
-1 passed
-```
-
-> 直接敲 `ruff` / `pytest` 不认时，用 `python -m ruff` / `python -m pytest`——venv 的 Scripts 偶尔没进当前 PATH。
-
-## 4. 推 GitHub
-
-`github.com:443` 在国内常被 TLS 重置，但 `github.com:22` 通常可用，所以走 SSH：
+其他模型下载：
 
 ```bat
-ssh-keygen -t ed25519 -C "mangatl"
-type %USERPROFILE%\.ssh\id_ed25519.pub | clip
+runtime\python.exe -m mangatl fetch-models --list
+runtime\python.exe -m mangatl fetch-models
 ```
 
-浏览器：GitHub → Settings → SSH and GPG keys → New SSH key → 粘贴。
+## 6. 构建便携版
 
 ```bat
-ssh -T git@github.com
-git remote add origin git@github.com:<你的账号>/mangatl.git
-git push -u origin main
+runtime\python.exe tools\build_portable_bat.py
 ```
 
-若 22 也不通，在 `%USERPROFILE%\.ssh\config` 里加：
+输出 `dist\mangatl-portable\`，包含：
 
-```
-Host github.com
-  HostName ssh.github.com
-  Port 443
-  User git
-```
+- `runtime\`（Python + site-packages）
+- `data\`（模型）
+- `启动.bat`、`诊断.bat`
+- `tools\check_env.py`、`diagnose.py`
 
-## 5. 每次开工（就两行）
+发布压缩包：
 
-```bat
-cd /d <仓库目录>
-.venv\Scripts\activate.bat
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\pack_release.ps1 -Version 0.3.0
 ```
 
-## 常见故障对照表
+7-Zip 会生成单卷或分卷，并写 `SHA256SUMS.txt`。
 
-| 症状 | 原因 | 处理 |
-|---|---|---|
-| `'python' 不是内部或外部命令` | 商店占位符已关、3.12 不在 PATH | 用 `py -3.12`，或激活 venv |
-| `python` 弹出微软商店 | 应用执行别名未关 | 关掉 `python.exe` / `python3.exe` 别名 |
-| `.[dev]curl is not a valid editable requirement` | 两条命令粘成了一行 | 一条一条执行 |
-| `ProxyError ... _ssl.c:993 handshake timed out` | 代理写成了 `https://` | 改成 `http://127.0.0.1:7897` |
-| `SSL: UNEXPECTED_EOF_WHILE_READING` | 直连 pypi/github 被重置 | 走镜像，或代理 + Global 模式 |
-| `PermissionError: pip.ini` | 配置文件被安全软件锁写 | 不要改它，用 `PIP_CONFIG_FILE=NUL` |
-| 连接建立但下载速度 0 | 节点到 Fastly CDN 不通 | 换节点 / 换网络 / 离线 wheels |
-| 卡在 `Resolving` 或构建 | build isolation 在下载 | `--no-build-isolation`（先装 hatchling） |
-| **`pip install` 毫无输出、永远等**（`-V`/`list` 正常、`urllib` 取页面 200） | pip 26.x 在 Windows 上的 TLS/truststore 回归 | 回退 pip：`python -m ensurepip --upgrade --default-pip`，之后固定 `pip<26` |
+## 7. 常见错误
 
-## 附：pip 26 在 Windows 上会静默挂起
+| 错误 | 原因 / 处理 |
+|---|---|
+| `缺少 runtime\python.exe` | 没解压完整，或 `setup.bat` 失败 |
+| `环境检查未通过` | 依赖版本不匹配；重跑 `setup.bat` |
+| `ModuleNotFoundError: mangatl` | 运行了错误的 Python；用 `runtime\python.exe` |
+| GUI 报 Qt 平台插件错误 | `runtime\` 不完整，重新解压/安装 |
+| 模型下载失败 | 检查网络；LaMa 可手动放 `data\models\lama.onnx` |
+| 启动闪退 | cmd 运行 `启动.bat` 看 traceback，或跑 `诊断.bat` |
 
-实测现象：venv 里是 `pip 26.2.2` 时，`pip install` 无任何输出、CPU 空闲、永远不报错；同一解释器用 `urllib` 取 PyPI 却返回 200，系统 Python 的 pip 25 也正常。判断为 pip 26 改走系统证书库（vendored `truststore`）后的回归。
+## 8. 目录与数据
 
-**修复（离线，不联网）**：
+- `MANGATL_HOME` 覆盖程序根目录
+- `MANGATL_DATA_DIR` 覆盖 `data/` 目录
+- 不写注册表、不写 `%APPDATA%`
+- 项目状态写在用户打开的漫画目录：`project.json`、`inpainted/`、`result/`
 
-```bat
-python -m ensurepip --upgrade --default-pip
-python -m pip -V
-```
-
-应回落到 Python 3.12.10 自带的 pip（24.x）。之后**不要**再 `pip install -U pip`；确实要升级就锁 `pip<26`：
-
-```bat
-python -m pip install "pip<26"
-```
-
-若 `ensurepip` 不可用，直接重建 venv（同样拿到自带 pip）：
-
-```bat
-py -3.12 -m venv --clear .venv
-.venv\Scripts\activate.bat
-```
-
-
-## 离线兜底（网络彻底不通时）
-
-在能上网的机器上（同 Python 3.12、同 win_amd64）：
-
-```bat
-python -m pip download -e ".[dev]" -d wheels --index-url https://pypi.org/simple
-```
-
-把 `wheels\` 拷到本机后：
-
-```bat
-python -m pip install --no-index --find-links wheels -e ".[dev]"
-```
-
-## 离线运行（权重已缓存）
-
-网络不通时，让 HuggingFace 库跳过联网校验：
-
-```bat
-set HF_HOME=%CD%\data\hf
-set HF_HUB_OFFLINE=1
-set TRANSFORMERS_OFFLINE=1
-python -m mangatl run samples\vol1 --offline ...
-```
-
-`--offline` 等价于上面两个环境变量，并在未设置 `HF_HOME` 时指向 `data/hf`。
+详见 [portable-data-contract.md](portable-data-contract.md)。

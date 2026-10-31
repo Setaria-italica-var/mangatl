@@ -4,25 +4,24 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mangatl"
-version = "0.3.0.dev0"
+version = "0.3.0"
 description = "One-click local manga translation: detect, OCR, LLM translate, erase, typeset (incl. vertical)."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = { text = "GPL-3.0-only" }
 authors = [{ name = "mangatl contributors" }]
 keywords = ["manga", "comic", "translation", "ocr", "inpainting", "typesetting", "japanese", "chinese"]
 classifiers = [
-  "Development Status :: 2 - Pre-Alpha",
-  "Environment :: X11 Applications :: Qt",
+  "Development Status :: 4 - Beta",
+  "Environment :: Win32 (MS Windows)",
   "Intended Audience :: End Users/Desktop",
   "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
   "Natural Language :: Chinese (Simplified)",
   "Natural Language :: Japanese",
-  "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Topic :: Multimedia :: Graphics",
 ]
-# 运行时依赖待 M1 冻结（torch 按 CUDA/CPU 分档，不放这里）
+# Runtime deps are pinned in requirements.txt and installed into runtime/ by setup.bat.
 dependencies = []
 
 [project.optional-dependencies]
@@ -32,8 +31,8 @@ vision = ["numpy>=1.26", "pillow>=10"]
 gui = ["PySide6>=6.6", "PySide6-Fluent-Widgets>=1.7"]
 
 [project.urls]
-Homepage = "https://github.com/OWNER/mangatl"
-Documentation = "https://github.com/OWNER/mangatl/tree/main/docs"
+Homepage = "https://github.com/Setaria-italica-var/mangatl"
+Documentation = "https://github.com/Setaria-italica-var/mangatl/tree/main/docs"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mangatl"]

@@ -2,10 +2,12 @@
 
 ## 启动
 
+便携版双击 `启动.bat`。源码环境先运行一次 `setup.bat`，之后：
+
 ```bat
-.venv\Scripts\activate.bat
-uv pip install "mangatl[gui]"        # 一次即可，装 PySide6
-python -m mangatl gui samples\vol1
+启动.bat
+:: 或
+runtime\python.exe -m mangatl gui samples\vol1
 ```
 
 ## 界面布局
