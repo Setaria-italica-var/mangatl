@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import platform
 import sys
 import traceback
 from pathlib import Path
-
-import os
 
 BASE = Path(__file__).resolve().parent
 
@@ -93,4 +92,4 @@ if __name__ == "__main__":
         raise
     except Exception:  # noqa: BLE001 - keep the file useful even on a hard crash
         traceback.print_exc()
-        raise SystemExit(1)
+        raise SystemExit(1) from None
