@@ -82,7 +82,12 @@ $parts = Get-ChildItem -Path $outPath -Filter "mangatl-portable-v$Version.7z.*" 
     Where-Object { $_.Name -match '\.7z\.\d{3}$' } |
     Sort-Object Name
 if (-not $parts) {
-    throw "No split volumes produced. Did 7-Zip ignore -v${VolumeMB}m?"
+    throw "No archive produced. Did 7-Zip ignore -v${VolumeMB}m?"
+}
+if (@($parts).Count -eq 1 -and $parts[0].Name -like "*.001") {
+    $single = Join-Path $outPath "mangatl-portable-v$Version.7z"
+    Move-Item -LiteralPath $parts[0].FullName -Destination $single -Force
+    $parts = @(Get-Item -LiteralPath $single)
 }
 
 $limit = 2000000000

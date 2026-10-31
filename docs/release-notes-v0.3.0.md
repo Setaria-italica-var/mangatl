@@ -7,17 +7,17 @@
 
 | 文件 | 说明 |
 |---|---|
-| `mangatl-portable-v0.3.0.7z.001` | 便携版分卷 1 |
-| `mangatl-portable-v0.3.0.7z.002` | 便携版分卷 2 |
-| `SHA256SUMS.txt` | 分卷 SHA256 校验 |
+| `mangatl-portable-v0.3.0.7z` | 便携版（约 1.86 GB） |
+| `SHA256SUMS.txt` | SHA256 校验 |
 
-> 体积较大，已用 7-Zip 分卷（每卷 < 2 GB）。**所有分卷都要下载**，放到同一个目录。
+> 原始目录约 3.5 GB，7-Zip 压缩后 1.86 GB，低于 GitHub 单个附件 2 GB 上限，因此不再分卷。
+> 如果以后压缩后超过 2 GB，用 `tools/pack_release.ps1 -VolumeMB 900` 重新生成分卷。
 
 ## 安装 / 启动
 
 1. 安装 [7-Zip](https://www.7-zip.org/)（已安装可跳过）
-2. 把全部 `.7z.001`、`.7z.002` 下载到同一目录
-3. 右键 `mangatl-portable-v0.3.0.7z.001` → 7-Zip → **解压到当前文件夹**
+2. 下载 `mangatl-portable-v0.3.0.7z`
+3. 右键该文件 → 7-Zip → **解压到当前文件夹**
 4. 进入解压出的 `mangatl-portable`，双击 **`启动.bat`**
 5. 首次启动可用 `诊断.bat` 检查运行环境
 
@@ -26,7 +26,7 @@
 ## 校验
 
 ```powershell
-Get-FileHash .\mangatl-portable-v0.3.0.7z.* -Algorithm SHA256
+Get-FileHash .\mangatl-portable-v0.3.0.7z -Algorithm SHA256
 ```
 
 把输出与 `SHA256SUMS.txt` 对照，大小写不敏感。
