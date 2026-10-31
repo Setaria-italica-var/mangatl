@@ -19,12 +19,13 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from mangatl import paths
 from mangatl.domain.block import TextBlock
 
 MODEL_ENV = "MANGATL_MIT48_MODEL"
 ALPHABET_ENV = "MANGATL_MIT48_ALPHABET"
-DEFAULT_MODEL = "data/models/mit/ocr-ctc.ckpt"
-DEFAULT_ALPHABET = "data/models/mit/alphabet-all-v5.txt"
+DEFAULT_MODEL = paths.models_file("mit", "ocr-ctc.ckpt")
+DEFAULT_ALPHABET = paths.models_file("mit", "alphabet-all-v5.txt")
 TEXT_HEIGHT = 48
 MIN_LINE = 8
 

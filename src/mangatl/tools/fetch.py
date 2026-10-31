@@ -16,6 +16,8 @@ import sys
 import urllib.request
 from pathlib import Path
 
+from mangatl import paths
+
 DEFAULT_ENDPOINT = "https://hf-mirror.com"
 OFFICIAL_ENDPOINT = "https://huggingface.co"
 USER_AGENT = "mangatl/0.1 (+https://github.com/mangatl/mangatl)"
@@ -107,7 +109,7 @@ def download(url: str, destination: Path) -> Path:
 
 def fetch(
     repo: str = DEFAULT_REPO,
-    destination: Path = Path("data/models/bubble-src"),
+    destination: Path | None = None,
     base: str | None = None,
     export: bool = True,
     imgsz: int = 640,
@@ -116,6 +118,7 @@ def fetch(
 
     Returns the exported ONNX path, or ``None`` when no export happened.
     """
+    destination = destination or (paths.models_dir() / "bubble-src")
     try:
         info = model_card(repo, base)
         files = weight_files(info, base, repo)
@@ -140,7 +143,7 @@ def fetch(
     )
     if not export or checkpoint is None:
         return None
-    return export_onnx(checkpoint, destination, imgsz, Path("data/ultralytics"))
+    return export_onnx(checkpoint, destination, imgsz, paths.data_path("ultralytics"))
 
 
 def export_onnx(
@@ -148,7 +151,7 @@ def export_onnx(
 ) -> Path | None:
     """Export a YOLO checkpoint to ONNX in-process; returns the ONNX path."""
     target = destination.parent / "bubble_detector.onnx"
-    config_dir = config_dir or Path("data/ultralytics")
+    config_dir = config_dir or paths.data_path("ultralytics")
     config_dir.mkdir(parents=True, exist_ok=True)
     # Ultralytics writes settings to %APPDATA%; point it inside the project, which
     # also works where that directory is locked down. Must be set before import.

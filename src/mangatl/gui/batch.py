@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QProcess, Qt, QTimer, Signal
+from PySide6.QtCore import QProcess, QProcessEnvironment, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -185,7 +185,7 @@ class BatchSheet(QWidget):
         )
         layout.addWidget(self.progress)
 
-        self.heartbeat = CaptionLabel("等待开始")
+        self.heartbeat = CaptionLabel("子进程未启动")
         self.heartbeat.setStyleSheet("color: #9aa0a8;")
         layout.addWidget(self.heartbeat)
 
@@ -295,7 +295,7 @@ class BatchSheet(QWidget):
         self.failed = []
         self.btn_retry.setEnabled(False)
         self._fill([page.name for page in pages])
-        self.heartbeat.setText("等待开始")
+        self.heartbeat.setText("子进程未启动")
 
     def _fill(self, names: list[str]) -> None:
         self.rows = {name: Row(name) for name in names}
@@ -441,6 +441,10 @@ class BatchSheet(QWidget):
         self.btn_retry.setEnabled(False)
 
         process = QProcess(self)
+        child_env = QProcessEnvironment.systemEnvironment()
+        child_env.insert("PYTHONIOENCODING", "utf-8")
+        child_env.insert("PYTHONUTF8", "1")
+        process.setProcessEnvironment(child_env)
         process.setProcessChannelMode(QProcess.ProcessChannelMode.SeparateChannels)
         process.readyReadStandardOutput.connect(self._read_stdout)
         process.readyReadStandardError.connect(self._read_stderr)
@@ -531,11 +535,13 @@ class BatchSheet(QWidget):
                 int(self.started_pages * 100 / max(1, self.planned))
             )
             self._set_row(page, STATUS_RUNNING)
-            self.heartbeat.setText(f"第 {self.started_pages}/{self.planned} 页 · {page}")
+            self.heartbeat.setText(
+                f"子进程存活 · 第 {self.started_pages}/{self.planned} 页 · {page}"
+            )
         elif kind == "stage-start":
             self.current_stage = detail
             label = STAGE_LABELS.get(detail, detail)
-            self.heartbeat.setText(f"{page} · 阶段 {label}")
+            self.heartbeat.setText(f"子进程存活 · {page} · 阶段 {label}")
         elif kind == "page-done":
             blocks = 0
             for token in detail.split():
@@ -590,12 +596,13 @@ class BatchSheet(QWidget):
         state = watchdog_state(idle, threshold)
         stage = STAGE_LABELS.get(self.current_stage, self.current_stage or "准备中")
         self.heartbeat.setText(
-            f"心跳：{idle:.0f}s 前 · {self.current_page or '-'} · {stage} · "
-            f"已用 {time.monotonic() - self.started_at:.0f}s"
+            f"子进程存活 · {idle:.0f}s 前有进展 · {self.current_page or '-'} · "
+            f"{stage} · 已用 {time.monotonic() - self.started_at:.0f}s"
         )
         if state == STATE_STUCK:
             self.warning_label.setText(
-                f"{idle:.0f} 秒没有新进展，可能卡住（阈值 {threshold:.0f}s）"
+                f"已 {idle:.0f} 秒没有任何进展，子进程可能卡住"
+                f"（阈值 {threshold:.0f}s）"
             )
             self.warning_bar.setVisible(True)
         elif state == STATE_OK:

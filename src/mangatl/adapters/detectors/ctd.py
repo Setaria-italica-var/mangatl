@@ -32,9 +32,10 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from mangatl import paths
 from mangatl.domain.block import TextBlock
 
-DEFAULT_MODEL = Path("data/models/comictextdetector.pt.onnx")
+DEFAULT_MODEL = paths.models_dir() / "comictextdetector.pt.onnx"
 MODEL_ENV = "MANGATL_CTD_MODEL"
 
 

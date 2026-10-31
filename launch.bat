@@ -1,9 +1,4 @@
 @echo off
-rem One-click start without building an exe (uses the bundled venv).
-cd /d "%~dp0"
-if exist ".venv\Scripts\python.exe" (
-  ".venv\Scripts\python.exe" tools\launcher.py %*
-) else (
-  python tools\launcher.py %*
-)
-if errorlevel 1 pause
+rem English alias: the only implementation lives in 启动.bat.
+call "%~dp0启动.bat" %*
+exit /b %errorlevel%

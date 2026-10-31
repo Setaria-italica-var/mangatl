@@ -1,24 +1,19 @@
 """Recently opened manga folders, stored next to the program.
 
-The file is deliberately tiny and portable: no registry, no ``%APPDATA%``. It only
-records folder paths so the next launch can reopen the last book.
+The file is deliberately tiny and portable: no registry, no ``%APPDATA%``. Folders under
+the app root are saved **relative** to it, so moving the project does not break the list;
+external folders stay absolute.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import sys
 from pathlib import Path
 
+from mangatl import paths
+
 MAX_ENTRIES = 8
-
-
-def app_root() -> Path:
-    """Directory that holds ``data/`` (repo root in source, exe folder when frozen)."""
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parents[3]
 
 
 def store_path() -> Path:
@@ -26,21 +21,25 @@ def store_path() -> Path:
     override = os.environ.get("MANGATL_RECENT")
     if override:
         return Path(override)
-    return app_root() / "data" / "recent.json"
+    return paths.recent_path()
+
+
+def _decode(item: object) -> Path:
+    candidate = Path(str(item))
+    return candidate if candidate.is_absolute() else paths.app_root() / candidate
 
 
 def load() -> list[Path]:
     """Return remembered folders, newest first, dropping ones that vanish."""
-    path = store_path()
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(store_path().read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return []
     entries = raw.get("folders", []) if isinstance(raw, dict) else []
-    folders = []
+    folders: list[Path] = []
     for item in entries:
-        candidate = Path(str(item))
-        if candidate.is_dir():
+        candidate = _decode(item)
+        if candidate.is_dir() and candidate not in folders:
             folders.append(candidate)
     return folders[:MAX_ENTRIES]
 
@@ -63,7 +62,7 @@ def last() -> Path | None:
 def _save(folders: list[Path]) -> None:
     path = store_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"folders": [str(item) for item in folders]}
+    payload = {"folders": [paths.display_path(item) for item in folders]}
     temp = path.with_suffix(".tmp")
     temp.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"

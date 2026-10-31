@@ -9,7 +9,7 @@ also runs directly with any Python 3.10+:
 Design notes
 ------------
 * The exe stays tiny: Python, Qt and the models are *not* frozen into it.
-* The launcher prefers ``runtime\\python`` (embeddable) then ``.venv`` then the
+* The launcher prefers ``runtime\\python.exe`` (embedded) then ``.venv`` then the
   system interpreter, and creates ``.venv`` when it has to.
 * Installs come from ``wheels\\`` first (offline), then from the configured index.
 * Long steps print what they are doing; failures pause so a double-click window
@@ -119,7 +119,7 @@ def python_version(path: Path) -> tuple[int, int] | None:
 def find_python(root: Path) -> tuple[Path | None, str]:
     """Return (interpreter, description) using the project-first order."""
     candidates = [
-        (root / "runtime" / "python" / "python.exe", "内置运行时"),
+        (root / "runtime" / "python.exe", "内置运行时"),
         (root / ".venv" / "Scripts" / "python.exe", "项目 .venv"),
     ]
     for path, label in candidates:

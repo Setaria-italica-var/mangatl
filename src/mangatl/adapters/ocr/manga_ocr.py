@@ -19,12 +19,13 @@ from pathlib import Path
 
 from PIL import Image, ImageOps
 
+from mangatl import paths
 from mangatl.domain.block import TextBlock
 
 DEFAULT_MODEL = "kha-white/manga-ocr-base"
 NEUTRAL_CONFIDENCE = 0.6
 # Project-local HuggingFace cache; tests set this to None to isolate lookups.
-PROJECT_CACHE: Path | None = Path("data/hf")
+PROJECT_CACHE: Path | None = paths.hf_dir()
 
 
 def local_snapshot(model_name: str = DEFAULT_MODEL) -> str | None:

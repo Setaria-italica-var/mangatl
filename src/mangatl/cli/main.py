@@ -19,8 +19,9 @@ from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
 
+from mangatl import paths
 from mangatl.adapters.base import Inpainter, Ocr, Registry, Translator
-from mangatl.adapters.stubs import CopyInpainter, EchoOcr, GridDetector
+from mangatl.adapters.stubs import CopyInpainter, CopyTranslator, EchoOcr, GridDetector
 from mangatl.adapters.translators.openai_compat import (
     PROFILES,
     LlmConfig,
@@ -105,6 +106,7 @@ def default_registries() -> tuple[
             profile,
             lambda name=profile: OpenAiTranslator(LlmConfig.from_env(name)),
         )
+    translators.add("echo", CopyTranslator)
     return detectors, ocrs, inpainters, translators
 
 
@@ -166,11 +168,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="recognition language for RapidOCR (japan, ch, en, korean, ...)",
     )
     run.add_argument("--inpainter", default="copy")
-    default_translator = "openai" if os.environ.get("MANGATL_API_KEY") else "ollama"
+    default_translator = "openai" if os.environ.get("MANGATL_API_KEY") else "echo"
     run.add_argument(
         "--translator",
         default=default_translator,
-        help="openai | ollama | lmstudio | llamacpp (OpenAI-compatible)",
+        help="openai | ollama | lmstudio | llamacpp | echo (source text)",
     )
     run.add_argument("--source-lang", default="ja")
     run.add_argument("--target-lang", default="zh-CN")
@@ -200,7 +202,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument(
         "--bubble-model",
-        default="data/models/bubble_detector.onnx",
+        default=paths.models_file("bubble_detector.onnx"),
         help="path to the YOLOv8 bubble detector ONNX file",
     )
     run.add_argument(
@@ -267,7 +269,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     fetch = sub.add_parser("fetch-models", help="download model weights from the HF hub")
     fetch.add_argument("--repo", default="ogkalu/comic-speech-bubble-detector-yolov8m")
-    fetch.add_argument("--dest", type=Path, default=Path("data/models/bubble-src"))
+    fetch.add_argument("--dest", type=Path, default=paths.models_dir() / "bubble-src")
     fetch.add_argument("--endpoint", default="")
     fetch.add_argument("--no-export", action="store_true")
     fetch.add_argument("--imgsz", type=int, default=640)
@@ -290,8 +292,22 @@ def _build_parser() -> argparse.ArgumentParser:
 
     bubbles_test = sub.add_parser("bubbles-test", help="run the bubble model on one page")
     bubbles_test.add_argument("page", type=Path)
-    bubbles_test.add_argument("--model", default="data/models/bubble_detector.onnx")
+    bubbles_test.add_argument("--model", default=paths.models_file("bubble_detector.onnx"))
     bubbles_test.add_argument("--classes", type=int, default=None)
+
+    fill = sub.add_parser("fill-region", help="repaint a polygon region (GUI worker)")
+    fill.add_argument("directory", type=Path)
+    fill.add_argument("--page", required=True)
+    fill.add_argument("--polygon", required=True, help="x,y;x,y;…")
+    fill.add_argument("--inpainter", default="masked", choices=["masked", "lama"])
+
+    sub.add_parser("task-worker", help="long-lived background task worker (JSON lines)")
+    sub.add_parser("region-worker", help=argparse.SUPPRESS)
+
+    ocr_crop = sub.add_parser("ocr-crop", help="re-OCR one block (used by the GUI)")
+    ocr_crop.add_argument("directory", type=Path)
+    ocr_crop.add_argument("--page", required=True)
+    ocr_crop.add_argument("--block", type=int, required=True)
 
     probe = sub.add_parser("probe", help="print an ONNX model's inputs and outputs")
     probe.add_argument("model", type=Path, help="path to a .onnx file")
@@ -311,6 +327,397 @@ def _build_bubble_detector(config: RunConfig):
             "hint: download it as described in docs/bubble-and-inpaint-plan.md"
         )
     return detector
+
+
+def _ocr_engine():
+    """Fusion when MIT48 weights exist, otherwise manga-ocr alone."""
+    from mangatl.adapters.ocr.manga_ocr import MangaOcrAdapter
+
+    manga = MangaOcrAdapter()
+    try:
+        from mangatl.adapters.ocr.hybrid import FusionOcr
+        from mangatl.adapters.ocr.mit48px import DEFAULT_MODEL, Mit48pxOcr
+
+        model = Path(os.environ.get("MANGATL_MIT48_MODEL", DEFAULT_MODEL))
+        if model.is_file():
+            return FusionOcr(Mit48pxOcr(), manga)
+    except Exception:  # noqa: BLE001 - optional engine
+        pass
+    return manga
+
+
+def _parse_polygon(spec: str) -> list[tuple[float, float]]:
+    points: list[tuple[float, float]] = []
+    for part in spec.split(";"):
+        part = part.strip()
+        if not part:
+            continue
+        x, y = part.split(",")
+        points.append((float(x), float(y)))
+    return points
+
+
+class _FillCancelled(Exception):
+    """Raised when the GUI asked to discard this region fill."""
+
+
+def _make_region_filler(name: str, cache: dict):
+    if name in cache:
+        return cache[name]
+    if name == "lama":
+        from mangatl.adapters.inpaint.lama import LamaInpainter
+
+        filler = LamaInpainter()
+    else:
+        from mangatl.adapters.inpaint.masked import MaskedInpainter
+
+        filler = MaskedInpainter()
+    cache[name] = filler
+    return filler
+
+
+def _fill_region(
+    directory: Path,
+    page_name: str,
+    points: list[tuple[float, float]],
+    inpainter_name: str,
+    cache: dict,
+    cancel_path: Path | None = None,
+    request_id: str = "",
+) -> float:
+    """Fill one polygon; returns elapsed seconds. Raises on failure."""
+    started = time.monotonic()
+    from PIL import Image, ImageDraw
+
+    project = Project.open(directory)
+    page = next((item for item in project if item.name == page_name), None)
+    if page is None:
+        raise ValueError(f"page not found: {page_name}")
+    if len(points) < 3:
+        raise ValueError("polygon needs 3+ points")
+    source = project.directory / page.name
+    destination = project.directory / "inpainted" / page.name
+    base = destination if destination.is_file() else source
+    with Image.open(source) as handle:
+        width, height = handle.size
+    mask = Image.new("L", (width, height), 0)
+    ImageDraw.Draw(mask).polygon(points, fill=255)
+    import numpy as np
+
+    array = np.asarray(mask) > 0
+    filler = _make_region_filler(inpainter_name, cache)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(destination.stem + ".tmp" + destination.suffix)
+    filler.fill_region(base, temporary, array)
+    if cancel_path is not None and cancel_path.is_file():
+        try:
+            requested = cancel_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            requested = ""
+        if requested == request_id:
+            temporary.unlink(missing_ok=True)
+            cancel_path.unlink(missing_ok=True)
+            raise _FillCancelled()
+    os.replace(temporary, destination)
+    page.mark("erase")
+    project.save()
+    return time.monotonic() - started
+
+
+def _run_fill_region(
+    directory: Path, page_name: str, polygon: str, inpainter_name: str
+) -> int:
+    """One-shot fill; prints one JSON line."""
+    cache: dict = {}
+    try:
+        points = _parse_polygon(polygon)
+        seconds = _fill_region(directory, page_name, points, inpainter_name, cache)
+    except Exception as exc:  # noqa: BLE001 - report as JSON
+        print(
+            json.dumps(
+                {"ok": False, "error": f"{type(exc).__name__}: {exc}"},
+                ensure_ascii=True,
+            )
+        )
+        return 1
+    print(json.dumps({"ok": True, "seconds": round(seconds, 2)}, ensure_ascii=True))
+    return 0
+
+
+class _TaskCancelled(Exception):
+    """The GUI asked to discard this background task."""
+
+
+def _cancel_token(request_id: object) -> Path | None:
+    if not request_id:
+        return None
+    return paths.data_dir() / "tmp" / f"region-cancel-{request_id}"
+
+
+def _consume_cancel(request_id: object) -> bool:
+    token = _cancel_token(request_id)
+    if token is None or not token.is_file():
+        return False
+    try:
+        requested = token.read_text(encoding="utf-8").strip()
+    except OSError:
+        requested = ""
+    token.unlink(missing_ok=True)
+    return requested == str(request_id)
+
+
+def _worker_page(directory: str, page_name: str):
+    project = Project.open(directory)
+    page = next((item for item in project if item.name == page_name), None)
+    if page is None:
+        raise ValueError(f"page not found: {page_name}")
+    return project, page
+
+
+def _task_ocr(request: dict, cache: dict) -> dict:
+    from mangatl.domain.block import TextBlock
+    from mangatl.domain.plausibility import plausibility
+    from mangatl.domain.quality import looks_like_hallucination
+
+    project, page = _worker_page(str(request["directory"]), str(request["page"]))
+    block = next((item for item in page.blocks if item.id == request["block"]), None)
+    if block is None:
+        raise ValueError(f"block not found: {request['block']}")
+    original = block.text
+    engine = cache.get("ocr")
+    if engine is None:
+        engine = _ocr_engine()
+        cache["ocr"] = engine
+    probe = TextBlock.from_dict(block.to_dict())
+    result = engine.recognize(project.directory / page.name, [probe])[0]
+    text = result.text.strip()
+    if (
+        not text
+        or plausibility(text) < 0.25
+        or looks_like_hallucination(text, original)
+    ):
+        return {"ok": False, "rejected": True, "text": text}
+    if _consume_cancel(request.get("id")):
+        raise _TaskCancelled()
+    block.text = text
+    block.ocr_source = "reocr"
+    block.needs_review = False
+    project.save()
+    return {"ok": True, "text": text}
+
+
+def _task_translate(request: dict, cache: dict) -> dict:
+    project, page = _worker_page(str(request["directory"]), str(request["page"]))
+    wanted = {int(item) for item in request.get("blocks", [])}
+    blocks = [block for block in page.blocks if block.id in wanted]
+    if not blocks:
+        raise ValueError("no blocks selected")
+    profile = str(request.get("translator", "echo"))
+    translator = cache.setdefault("translators", {}).get(profile)
+    if translator is None:
+        if profile == "echo":
+            translator = CopyTranslator()
+        else:
+            from mangatl.adapters.translators.openai_compat import (
+                LlmConfig,
+                OpenAiTranslator,
+            )
+
+            translator = OpenAiTranslator(LlmConfig.from_env(profile))
+        cache["translators"][profile] = translator
+    translator.translate(blocks, {"target_lang": "简体中文"})
+    if _consume_cancel(request.get("id")):
+        raise _TaskCancelled()
+    project.save()
+    return {"ok": True, "count": len(blocks)}
+
+
+def _task_detect(request: dict, cache: dict) -> dict:
+    import tempfile
+
+    from PIL import Image
+
+    from mangatl.adapters.detectors.ctd import CtdDetector
+    from mangatl.domain.block import TextBlock
+    from mangatl.domain.roles import BlockRole
+
+    project, page = _worker_page(str(request["directory"]), str(request["page"]))
+    points = [(float(x), float(y)) for x, y in request.get("polygon", [])]
+    if len(points) < 3:
+        raise ValueError("polygon needs 3+ points")
+    with Image.open(project.directory / page.name) as handle:
+        width, height = handle.size
+        x1 = max(0, min(int(min(p[0] for p in points)), width))
+        y1 = max(0, min(int(min(p[1] for p in points)), height))
+        x2 = max(0, min(int(max(p[0] for p in points)), width))
+        y2 = max(0, min(int(max(p[1] for p in points)), height))
+        if x2 - x1 < 8 or y2 - y1 < 8:
+            return {"ok": True, "added": 0}
+        crop = handle.convert("RGB").crop((x1, y1, x2, y2))
+    detector = cache.get("detector")
+    if detector is None:
+        detector = CtdDetector()
+        cache["detector"] = detector
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temporary:
+        crop.save(temporary.name)
+        found = detector.detect(Path(temporary.name))
+    Path(temporary.name).unlink(missing_ok=True)
+    if _consume_cancel(request.get("id")):
+        raise _TaskCancelled()
+    added = 0
+    for block in found:
+        bx1, by1, bx2, by2 = block.bbox
+        box = (
+            max(0, min(bx1 + x1, width)),
+            max(0, min(by1 + y1, height)),
+            max(0, min(bx2 + x1, width)),
+            max(0, min(by2 + y1, height)),
+        )
+        new = TextBlock(
+            id=max((item.id for item in page.blocks), default=-1) + 1,
+            bbox=box,
+            text=block.text,
+            translation="",
+            vertical=block.vertical,
+            role=BlockRole.DIALOGUE.value,
+            in_bubble=True,
+            bubble_bbox=box,
+            ocr_source="manual",
+        )
+        page.blocks.append(new)
+        added += 1
+    if added:
+        project.save()
+    return {"ok": True, "added": added}
+
+
+def _task_brush(request: dict, cache: dict) -> dict:
+    """Fill a freehand stroke mask (round-capped polyline) in the erased page."""
+    import numpy as np
+    from PIL import Image, ImageDraw
+
+    project, page = _worker_page(str(request["directory"]), str(request["page"]))
+    points = [(float(x), float(y)) for x, y in request.get("points", [])]
+    if not points:
+        raise ValueError("empty brush stroke")
+    radius = max(2, int(request.get("radius", 32)))
+    with Image.open(project.directory / page.name) as handle:
+        width, height = handle.size
+    mask = Image.new("L", (width, height), 0)
+    draw = ImageDraw.Draw(mask)
+    if len(points) == 1:
+        x, y = points[0]
+        draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=255)
+    else:
+        draw.line(points, fill=255, width=radius * 2, joint="curve")
+        for x, y in (points[0], points[-1]):
+            draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=255)
+    array = np.asarray(mask) > 0
+    if not array.any():
+        return {"ok": True, "empty": True}
+    source = project.directory / page.name
+    destination = project.directory / "inpainted" / page.name
+    base = destination if destination.is_file() else source
+    filler = _make_region_filler(
+        str(request.get("engine", "masked")), cache["fillers"]
+    )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(destination.stem + ".tmp" + destination.suffix)
+    filler.fill_region(base, temporary, array)
+    if _consume_cancel(request.get("id")):
+        temporary.unlink(missing_ok=True)
+        raise _TaskCancelled()
+    os.replace(temporary, destination)
+    page.mark("erase")
+    project.save()
+    return {"ok": True}
+
+
+def _run_task_worker() -> int:
+    """Long-lived worker: fill / ocr / translate / detect, JSON lines both ways."""
+    cache: dict = {"fillers": {}, "ocr": None, "translators": {}, "detector": None}
+    print(json.dumps({"ready": True}), flush=True)
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        request_id = None
+        op = "fill"
+        try:
+            request = json.loads(line)
+            request_id = request.get("id")
+            op = str(request.get("op", "fill"))
+            if op == "fill":
+                points = [
+                    (float(point[0]), float(point[1]))
+                    for point in request["polygon"]
+                ]
+                seconds = _fill_region(
+                    Path(request["directory"]),
+                    str(request["page"]),
+                    points,
+                    str(request.get("inpainter", "masked")),
+                    cache["fillers"],
+                    cancel_path=_cancel_token(request_id),
+                    request_id=str(request_id or ""),
+                )
+                payload = {
+                    "id": request_id,
+                    "op": op,
+                    "ok": True,
+                    "seconds": round(seconds, 2),
+                }
+            elif op == "ocr":
+                payload = {"id": request_id, "op": op, **_task_ocr(request, cache)}
+            elif op == "translate":
+                payload = {
+                    "id": request_id,
+                    "op": op,
+                    **_task_translate(request, cache),
+                }
+            elif op == "detect":
+                payload = {
+                    "id": request_id,
+                    "op": op,
+                    **_task_detect(request, cache),
+                }
+            elif op == "brush":
+                payload = {
+                    "id": request_id,
+                    "op": op,
+                    **_task_brush(request, cache),
+                }
+            else:
+                raise ValueError(f"unknown op: {op}")
+        except _TaskCancelled:
+            payload = {"id": request_id, "op": op, "ok": False, "cancelled": True}
+        except _FillCancelled:
+            payload = {"id": request_id, "op": op, "ok": False, "cancelled": True}
+        except Exception as exc:  # noqa: BLE001 - keep the worker alive
+            payload = {
+                "id": request_id,
+                "op": op,
+                "ok": False,
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+        print(json.dumps(payload, ensure_ascii=True), flush=True)
+    return 0
+
+
+def _run_ocr_crop(directory: Path, page_name: str, block_id: int) -> int:
+    """Re-OCR a single block in a child process, printing one JSON line."""
+    project = Project.open(directory)
+    page = next((item for item in project if item.name == page_name), None)
+    if page is None:
+        print(json.dumps({"error": f"page not found: {page_name}"}, ensure_ascii=True))
+        return 2
+    block = next((item for item in page.blocks if item.id == block_id), None)
+    if block is None:
+        print(json.dumps({"error": f"block not found: {block_id}"}, ensure_ascii=True))
+        return 2
+    probe = _ocr_engine().recognize(project.directory / page.name, [block])[0]
+    print(json.dumps({"id": block.id, "text": probe.text}, ensure_ascii=True))
+    return 0
 
 
 def _build_ocr_judge(config: RunConfig):
@@ -375,7 +782,7 @@ def _force_offline() -> None:
     os.environ["MANGATL_OFFLINE"] = "1"
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
-    os.environ.setdefault("HF_HOME", str(Path("data/hf").resolve()))
+    os.environ.setdefault("HF_HOME", str(paths.hf_dir().resolve()))
 
 
 # The fp32 export is the recommended graph (opset 17); the dynamo export is slow
@@ -712,7 +1119,7 @@ class _EventStream:
 
 
 def _emit_json(payload: dict) -> None:
-    print(json.dumps(payload, ensure_ascii=False), flush=True)
+    print(json.dumps(payload, ensure_ascii=True), flush=True)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -721,6 +1128,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     if args.command == "demo":
         return _run_demo(args.directory, args.pages, args.seed)
+    if args.command == "fill-region":
+        return _run_fill_region(
+            args.directory, args.page, args.polygon, args.inpainter
+        )
+    if args.command in {"task-worker", "region-worker"}:
+        return _run_task_worker()
+    if args.command == "ocr-crop":
+        return _run_ocr_crop(args.directory, args.page, args.block)
     if args.command == "probe":
         return _run_probe(args.model)
     if args.command == "gui":
@@ -733,7 +1148,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_inspect(args.directory)
     if args.command == "fetch-models":
         if getattr(args, "lama", False):
-            return _run_fetch_lama(Path("data/models/lama.onnx"))
+            return _run_fetch_lama(Path(paths.models_file("lama.onnx")))
         return _run_fetch_models(args)
     if args.command == "vision-test":
         return _run_vision_test(
@@ -796,7 +1211,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         vision_ocr = _build_vision_ocr(config)
         if "translate" in enabled:
             # Fail before loading OCR/detector weights when the provider is unusable.
-            LlmConfig.from_env(config.translator)
+            if config.translator != "echo":
+                LlmConfig.from_env(config.translator)
             translator: Translator = translators.get(config.translator)()
         else:
             from mangatl.adapters.stubs import CopyTranslator
@@ -839,7 +1255,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.events_json:
         _emit_json({"kind": "summary", **asdict(summary)})
     else:
-        print(json.dumps(asdict(summary), ensure_ascii=False))
+        print(json.dumps(asdict(summary), ensure_ascii=True))
     return 0 if summary.failed == 0 else 1
 
 

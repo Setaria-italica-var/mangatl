@@ -105,6 +105,13 @@ class Project:
             for name, payload in data.get("pages", {}).items()
         }
 
+    def reload(self) -> None:
+        """Re-read ``project.json`` after a background worker changed it."""
+        if self.path.is_file():
+            self._load()
+        else:
+            self.scan()
+
     def scan(self) -> list[str]:
         """Add pages for every image in the directory, preserving existing ones."""
         found = sorted(

@@ -5,13 +5,14 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from mangatl import paths
 from mangatl.core.pipeline import PipelineService
 from mangatl.domain.project import Project
 
 DETECTORS = ("ctd",)
 OCRS = ("mit_manga", "manga_ocr", "mit48px_ctc", "rapidocr")
 INPAINTERS = ("masked", "lama")
-TRANSLATORS = ("openai", "echo")
+TRANSLATORS = ("openai", "ollama", "lmstudio", "llamacpp", "echo")
 
 
 def build_default_service(
@@ -26,7 +27,7 @@ def build_default_service(
     from mangatl.adapters.inpaint.masked import MaskedInpainter
     from mangatl.adapters.ocr.hybrid import FusionOcr
     from mangatl.adapters.ocr.manga_ocr import MangaOcrAdapter
-    from mangatl.adapters.translators.echo import EchoTranslator
+    from mangatl.adapters.stubs import CopyTranslator
 
     detector_obj = CtdDetector()
 
@@ -53,23 +54,23 @@ def build_default_service(
     else:
         inpainter_obj = MaskedInpainter()
 
-    translator_obj = EchoTranslator()
-    if translator == "openai" and os.environ.get("MANGATL_API_KEY"):
+    translator_obj = CopyTranslator()
+    if translator in {"openai", "ollama", "lmstudio", "llamacpp"}:
         try:
             from mangatl.adapters.translators.openai_compat import (
                 LlmConfig,
                 OpenAiTranslator,
             )
 
-            translator_obj = OpenAiTranslator(LlmConfig.from_env())
-        except Exception:  # noqa: BLE001 - keep echo when the provider is unusable
-            translator_obj = EchoTranslator()
+            translator_obj = OpenAiTranslator(LlmConfig.from_env(translator))
+        except Exception:  # noqa: BLE001 - fall back to the source text
+            translator_obj = CopyTranslator()
 
     bubble_detector = None
     try:
         from mangatl.adapters.detectors.bubbles import BubbleDetector
 
-        candidate = BubbleDetector("data/models/bubble_detector.onnx")
+        candidate = BubbleDetector(paths.models_file("bubble_detector.onnx"))
         if candidate.available:
             bubble_detector = candidate
     except Exception:  # noqa: BLE001 - optional model

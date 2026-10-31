@@ -14,10 +14,11 @@ import json
 import os
 from pathlib import Path
 
+from mangatl import paths
 from mangatl.io import secrets
 
-SETTINGS_PATH = Path("data/settings.json")
-SECRETS_PATH = Path("data/secrets.bin")
+SETTINGS_PATH = paths.settings_path()
+SECRETS_PATH = paths.secrets_path()
 
 
 def load_settings(root: Path | None = None) -> dict:

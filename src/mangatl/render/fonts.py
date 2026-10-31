@@ -15,7 +15,9 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-BUNDLED_DIR = Path("data/fonts")
+from mangatl import paths
+
+BUNDLED_DIR = paths.fonts_dir()
 
 BUNDLED_CANDIDATES: dict[str, tuple[str, ...]] = {
     "sans": ("SourceHanSansSC-Regular.otf", "SourceHanSansSC-Regular.ttf", "sans.ttf"),

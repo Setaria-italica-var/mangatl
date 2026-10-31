@@ -74,7 +74,7 @@ docs/m0-plan.md        本文件
 ## 3. 怎么跑
 
 ```bat
-cd /d C:\Users\admin\Documents\deepseek-harness\default-workspace\mangatl
+cd /d <仓库目录>
 .venv\Scripts\activate.bat
 
 :: 没有样本时先生成合成页（气泡 + 横排/竖排字块 + 渐变）

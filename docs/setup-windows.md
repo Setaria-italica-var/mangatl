@@ -1,5 +1,19 @@
 # Windows 开发环境搭建（从零开始）
 
+> **现在优先用项目自带的 `runtime\`**，不再需要单独装 Python 或建 `.venv`：
+>
+> ```bat
+> cd /d "<仓库目录>"
+> runtime\python.exe -V
+> runtime\python.exe -m pytest
+> runtime\Scripts\ruff.exe check .
+> launch.bat
+> ```
+>
+> `runtime\Lib\site-packages` 已包含 PySide6 / torch / onnxruntime / pytest / mangatl，
+> 便携版直接复制这个目录。下面的 venv 流程仅作为旧环境参考。
+
+
 > 目标：一台没装过 Python 的 Windows 10/11，30 分钟内能跑测试、能推 GitHub。
 > 全程不需要管理员权限。
 
@@ -23,13 +37,13 @@ py -0p
 ## 1. 进项目、建 venv
 
 ```bat
-cd /d C:\Users\admin\Documents\deepseek-harness\default-workspace\mangatl
+cd /d <仓库目录>
 py -3.12 -m venv .venv
 .venv\Scripts\activate.bat
 python -V
 ```
 
-提示符应变成 `(.venv) C:\...\mangatl>`，`python -V` 应输出 `Python 3.12.10`。
+提示符应变成 `(runtime) <仓库目录>>`，`python -V` 应输出 `Python 3.12.10`。
 **每次新开窗口都要重新执行 `.venv\Scripts\activate.bat`。**
 
 ## 2. 选一条装依赖的路
@@ -45,7 +59,7 @@ set UV=%LOCALAPPDATA%\Programs\Python\Python312\Scripts\uv.exe
 ```
 
 ```bat
-cd /d C:\Users\admin\Documents\deepseek-harness\default-workspace\mangatl
+cd /d <仓库目录>
 set UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
 set UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 "%UV%" venv --clear --python 3.12 .venv
@@ -152,7 +166,7 @@ Host github.com
 ## 5. 每次开工（就两行）
 
 ```bat
-cd /d C:\Users\admin\Documents\deepseek-harness\default-workspace\mangatl
+cd /d <仓库目录>
 .venv\Scripts\activate.bat
 ```
 

@@ -62,13 +62,46 @@ set MANGATL_PIP_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
 launch.bat
 ```
 
+## 项目内运行时（开发与便携共用）
+
+仓库自带 `runtime\`（CPython 3.12 + 全部依赖 + mangatl 包），不需要 `.venv`：
+
+```bat
+cd /d "<仓库目录>"
+runtime\python.exe -V
+runtime\python.exe -m mangatl --help
+runtime\Scripts\ruff.exe check .
+launch.bat
+```
+
+改了 `src\mangatl` 后同步到 runtime：
+
+```bat
+runtime\python.exe tools\sync_runtime.py
+```
+
+`tools\build_portable_bat.py` 直接复制这个 `runtime\`，不再从 `.venv` 安装依赖。
+
+### 依赖与启动脚本的职责
+
+| 文件 | 职责 |
+|---|---|
+| `requirements.txt` | 唯一的运行时依赖清单（含版本号） |
+| `requirements-dev.txt` | 开发依赖（pytest / ruff） |
+| `setup.bat` | 读取清单，用系统 Python 3.12 的 pip 装到 `runtime\Lib\site-packages`，然后同步应用代码 |
+| `启动.bat` | **只做**：检查 runtime 存在 → `check_env.py` 校验依赖/模型 → 启动 GUI |
+| `launch.bat` | 英文别名，直接 `call 启动.bat`，不再维护第二份实现；便携包只带 `启动.bat` |
+
+所以以后升级依赖：改 `requirements.txt` → 运行 `setup.bat`。**不用改 bat，也不用重新打包脚本。**
+`check_env.py` 会按清单里的版本号逐一比对，版本不符会提示运行 `setup.bat`。
+
 ## 模型下载
 
 - 必需模型缺失时启动器自动调用 `fetch-models`
 - 可选 LaMa 局部重绘权重（约 208 MB，支持断点续传）：
 
 ```bat
-.venv\Scripts\python.exe -m mangatl fetch-models --lama
+runtime\python.exe -m mangatl fetch-models --lama
 ```
 
 
@@ -77,13 +110,13 @@ launch.bat
 PyInstaller 单文件/单目录方案在部分机器上会秒退，便携版改为 **内嵌 Python + bat**：
 
 ```bat
-python tools/build_portable_bat.py
+runtime\python.exe tools\build_portable_bat.py
 ```
 
 产物在 `dist/mangatl-portable/`（约 3.5 GB，含模型）：
 
 ```
-启动.bat                    双击即用；也可 启动.bat "D:\漫画\vol1"
+启动.bat                    双击即用；也可 启动.bat "你的漫画目录\vol1"
 runtime/                    内嵌 CPython 3.12 + 全部依赖（含 torch、PySide6、pywin32）
 runtime/Lib/site-packages/  依赖与 mangatl 包
 data/models/                CTD、MIT48、manga-ocr、气泡、LaMa

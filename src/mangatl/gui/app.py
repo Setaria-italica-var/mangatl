@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import sys
+import threading
+import traceback
 from pathlib import Path
+
+from mangatl import paths
 
 _IGNORED_QT_WARNINGS = (
     # Qt's style engine re-derives a font from a widget that already uses a pixel
@@ -31,6 +35,39 @@ def _install_qt_log_filter() -> None:
     qInstallMessageHandler(handler)
 
 
+def _append_error(text: str) -> None:
+    """Keep a crash log next to the portable app; harmless in a normal install."""
+    try:
+        path = paths.error_log_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.is_file() and path.stat().st_size > 2 * 1024 * 1024:
+            path.replace(path.with_suffix(".log.old"))
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(traceback.format_exc() if text else "")
+    except OSError:
+        pass
+
+
+def _install_error_hooks() -> None:
+    """Record uncaught exceptions so a bat window that closes is not a dead end."""
+
+    def hook(exc_type, exc, tb) -> None:
+        try:
+            path = paths.error_log_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write("\n--- uncaught exception ---\n")
+                handle.write("".join(traceback.format_exception(exc_type, exc, tb)))
+        except OSError:
+            pass
+        sys.__excepthook__(exc_type, exc, tb)
+
+    sys.excepthook = hook
+    threading.excepthook = lambda args: hook(
+        args.exc_type, args.exc_value, args.exc_traceback
+    )
+
+
 def run(project_dir: Path | str | None = None) -> int:
     """Open the last book, or the welcome page, and return the exit code."""
     try:
@@ -43,6 +80,7 @@ def run(project_dir: Path | str | None = None) -> int:
         return 2
 
     _install_qt_log_filter()
+    _install_error_hooks()
     from mangatl.io.settings import apply_saved_settings
 
     apply_saved_settings()

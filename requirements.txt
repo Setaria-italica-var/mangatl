@@ -1,0 +1,18 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# GUI
+PySide6==6.12.0
+PySide6-Fluent-Widgets==1.11.3
+
+# imaging / OCR
+numpy==2.5.4
+pillow==13.0.0
+opencv-python-headless==5.0.0.93
+onnxruntime==1.31.1
+torch==2.14.1
+transformers==5.21.0
+manga-ocr==0.1.16
+rapidocr==3.10.0
+
+# Windows (qfluentwidgets imports win32api)
+pywin32==312

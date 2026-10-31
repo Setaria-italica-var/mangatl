@@ -5,8 +5,18 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QImage, QPen, QPixmap, QPolygonF
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QImage,
+    QPainterPath,
+    QPen,
+    QPixmap,
+    QPolygonF,
+)
 from PySide6.QtWidgets import (
+    QGraphicsEllipseItem,
+    QGraphicsPathItem,
     QGraphicsPixmapItem,
     QGraphicsPolygonItem,
     QGraphicsRectItem,
@@ -36,6 +46,8 @@ class PageCanvas(QGraphicsView):
     selectionIdsChanged = Signal(list)
     contextMenuRequested = Signal(object)
     blockRotated = Signal(int, float)
+    brushFinished = Signal(list, int, bool)
+    brushRequested = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -48,6 +60,11 @@ class PageCanvas(QGraphicsView):
         self._pixmap_item: QGraphicsPixmapItem | None = None
         self._overlay_items: dict[int, QGraphicsRectItem] = {}
         self._preview: QGraphicsPolygonItem | None = None
+        self._brush_points: list[QPointF] = []
+        self._brush_item: QGraphicsPathItem | None = None
+        self._brush_cursor: QGraphicsEllipseItem | None = None
+        self._brush_radius = 32
+        self._brush_erase = True
         self._selection: QGraphicsPolygonItem | None = None
         self._selection_points: list[tuple[float, float]] = []
         self._mode = "select"
@@ -69,12 +86,83 @@ class PageCanvas(QGraphicsView):
 
     # -- modes ------------------------------------------------------------
     def set_mode(self, mode: str) -> None:
-        """``select``, ``lasso`` or ``rect``."""
+        """``select``, ``lasso``, ``rect`` or ``brush``."""
         self._mode = mode
+        self._brush_points = []
+        self._clear_brush_preview()
+        if mode != "brush":
+            self._hide_brush_cursor()
+        self.viewport().setCursor(
+            Qt.CursorShape.CrossCursor
+            if mode == "brush"
+            else Qt.CursorShape.ArrowCursor
+        )
         if mode == "select":
             self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
         else:
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
+
+    @property
+    def mode(self) -> str:
+        return self._mode
+
+    def set_brush_radius(self, radius: int) -> None:
+        self._brush_radius = max(2, int(radius))
+        self._update_brush_cursor(None)
+
+    def _brush_path(self, points: list[QPointF]) -> QPainterPath:
+        path = QPainterPath(points[0])
+        for point in points[1:]:
+            path.lineTo(point)
+        return path
+
+    def _update_brush_preview(self) -> None:
+        self._clear_brush_preview()
+        if not self._brush_points:
+            return
+        item = QGraphicsPathItem(self._brush_path(self._brush_points))
+        colour = (
+            QColor(255, 90, 90, 110)
+            if self._brush_erase
+            else QColor(80, 200, 255, 110)
+        )
+        pen = QPen(colour, self._brush_radius * 2)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        item.setPen(pen)
+        item.setZValue(8)
+        self.scene().addItem(item)
+        self._brush_item = item
+
+    def _clear_brush_preview(self) -> None:
+        if self._brush_item is not None:
+            self._remove_item(self._brush_item)
+            self._brush_item = None
+
+    def _update_brush_cursor(self, position: QPointF | None) -> None:
+        if self._mode != "brush":
+            self._hide_brush_cursor()
+            return
+        if position is None or not self.sceneRect().contains(position):
+            self._hide_brush_cursor()
+            return
+        if self._brush_cursor is None:
+            # Magenta reads clearly on white paper, black ink and greyscale screentone.
+            item = QGraphicsEllipseItem()
+            item.setPen(QPen(QColor(255, 0, 255, 235), 0))
+            item.setBrush(QBrush(QColor(255, 0, 255, 28)))
+            item.setZValue(20)
+            self.scene().addItem(item)
+            self._brush_cursor = item
+        radius = self._brush_radius
+        self._brush_cursor.setRect(
+            position.x() - radius, position.y() - radius, radius * 2, radius * 2
+        )
+
+    def _hide_brush_cursor(self) -> None:
+        if self._brush_cursor is not None:
+            self._remove_item(self._brush_cursor)
+            self._brush_cursor = None
 
     # -- content ----------------------------------------------------------
     def show_image(
@@ -100,6 +188,9 @@ class PageCanvas(QGraphicsView):
         self._selection = None
         self._selection_points = []
         self._diff_item = None
+        self._brush_item = None
+        self._brush_cursor = None
+        self._brush_points = []
         if kept_points:
             self._show_selection(kept_points)
         self._pixmap_item = self.scene().addPixmap(pixmap)
@@ -239,6 +330,18 @@ class PageCanvas(QGraphicsView):
             self._pan_start = event.position()
             event.accept()
             return
+        if self._mode == "brush" and event.button() in {
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.RightButton,
+        }:
+            if not self.sceneRect().contains(position):
+                event.accept()
+                return
+            self._brush_erase = event.button() == Qt.MouseButton.LeftButton
+            self._brush_points = [position]
+            self._update_brush_preview()
+            event.accept()
+            return
         if (
             event.button() == Qt.MouseButton.LeftButton
             and self._mode in {"lasso", "rect"}
@@ -312,6 +415,13 @@ class PageCanvas(QGraphicsView):
                 self.verticalScrollBar().value() - int(delta.y())
             )
             return
+        if self._mode == "brush":
+            self._update_brush_cursor(position)
+            if self._brush_points and self.sceneRect().contains(position):
+                self._brush_points.append(position)
+                self._update_brush_preview()
+            event.accept()
+            return
         if self._rubber is not None:
             self._update_rubber(position)
             return
@@ -358,6 +468,15 @@ class PageCanvas(QGraphicsView):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802 - Qt name
+        if self._mode == "brush":
+            if self._brush_points:
+                points = [(point.x(), point.y()) for point in self._brush_points]
+                erase = self._brush_erase
+                self._brush_points = []
+                self._clear_brush_preview()
+                self.brushFinished.emit(points, self._brush_radius, erase)
+            event.accept()
+            return
         if self._rubber is not None:
             self._finish_rubber(event)
             return
@@ -532,6 +651,10 @@ class PageCanvas(QGraphicsView):
         return (int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys)))
 
     def keyPressEvent(self, event) -> None:  # noqa: N802 - Qt name
+        if event.key() == Qt.Key.Key_B:
+            self.brushRequested.emit()
+            event.accept()
+            return
         if event.key() == Qt.Key.Key_Escape and self._selection is not None:
             self.clear_selection()
             return

@@ -7,7 +7,7 @@ holds a slim engine bar, modelled on BallonsTranslator's bottom bar.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QColorDialog,
     QDialog,
@@ -26,7 +26,6 @@ from qfluentwidgets import (
     CheckBox,
     ComboBox,
     LineEdit,
-    PrimaryPushButton,
     PushButton,
     TableWidget,
     TextEdit,
@@ -42,13 +41,11 @@ from mangatl.gui.pages import page_status
 SHEET_TITLES = {
     "editor": "编辑",
     "run": "运行",
-    "settings": "设置",
 }
 
 SHEET_ICONS = {
     "editor": FIF.EDIT,
     "run": FIF.PLAY,
-    "settings": FIF.SETTING,
 }
 
 
@@ -133,10 +130,6 @@ class EditorSheet(QWidget):
 
 
         row1 = QHBoxLayout()
-        self.btn_apply = PrimaryPushButton(FIF.ACCEPT, "应用并排版")
-        self.btn_apply.setToolTip("保存原文/译文/角色/样式，并立即重绘本页")
-        self.btn_apply.clicked.connect(self._apply_all)
-        row1.addWidget(self.btn_apply)
         self.btn_reocr = PushButton(FIF.SYNC, "重新识别")
         self.btn_reocr.clicked.connect(lambda: self.blockAction.emit("reocr"))
         row1.addWidget(self.btn_reocr)
@@ -169,6 +162,23 @@ class EditorSheet(QWidget):
 
         layout.addStretch(1)
         self._block_id: int | None = None
+        self._loading = False
+        self._apply_timer = QTimer(self)
+        self._apply_timer.setSingleShot(True)
+        self._apply_timer.setInterval(280)
+        self._apply_timer.timeout.connect(self._apply_all)
+        for widget_signal in (
+            self.text_edit.textChanged,
+            self.translation_edit.textChanged,
+            self.role_box.currentTextChanged,
+            self.font_box.currentTextChanged,
+            self.size_box.valueChanged,
+            self.spacing_box.valueChanged,
+            self.bold_box.toggled,
+            self.italic_box.toggled,
+            self.align_box.currentTextChanged,
+        ):
+            widget_signal.connect(self._schedule_apply)
 
     def show_page(self, page: Page | None) -> None:
         if page is None:
@@ -182,11 +192,14 @@ class EditorSheet(QWidget):
         self, block: TextBlock | None, effective: dict | None = None
     ) -> None:
         self._block_id = block.id if block else None
+        self._apply_timer.stop()
+        self._loading = True
         if block is None:
             self.info.setText("未选中文本块")
             self.meta.setText("点画布上的框选中，或用套索框选区域")
             self.text_edit.setPlainText("")
             self.translation_edit.setPlainText("")
+            self._loading = False
             return
         self.info.setText(
             f"#{block.id} {block.role} {'竖排' if block.vertical else '横排'}"
@@ -216,6 +229,7 @@ class EditorSheet(QWidget):
         self._fg_colour = style.get("fg", "")
         self._bg_colour = style.get("bg", "")
         self._update_colour_buttons()
+        self._loading = False
 
     def _pick_colour(self, target: str) -> None:
         current = self._fg_colour if target == "fg" else self._bg_colour
@@ -232,6 +246,13 @@ class EditorSheet(QWidget):
         else:
             self._bg_colour = value
         self._update_colour_buttons()
+        self._schedule_apply()
+
+    def _schedule_apply(self, *_args) -> None:
+        """Debounce auto-apply while the user edits text or style widgets."""
+        if self._loading or self._block_id is None:
+            return
+        self._apply_timer.start()
 
     def _update_colour_buttons(self) -> None:
         self.fg_button.setText(
@@ -259,7 +280,7 @@ class EditorSheet(QWidget):
         return style
 
     def _apply_all(self) -> None:
-        """One button: text, translation, role, style and a fresh render."""
+        """Emit the current values (debounced from every editor change)."""
         if self._block_id is None:
             return
         self.blockApplied.emit(
@@ -431,68 +452,6 @@ class SearchSheet(QWidget):
             self.jumpRequested.emit(int(page_index), int(block_id))
 
 
-class SettingsSheet(QWidget):
-    """Accent colour, translation endpoint and environment overview."""
-
-    apiConfigured = Signal()
-
-    def __init__(self) -> None:
-        super().__init__()
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 8, 10, 8)
-
-        layout.addWidget(BodyLabel("翻译接口"))
-        self.preset_box = ComboBox()
-        self.preset_box.addItems(
-            ["DeepSeek 云端", "Ollama 本地", "LM Studio 本地", "llama.cpp 本地", "自定义"]
-        )
-        self.preset_box.currentIndexChanged.connect(self._apply_preset)
-        layout.addWidget(self.preset_box)
-        self.api_key = LineEdit()
-        self.api_key.setPlaceholderText("MANGATL_API_KEY，例如 sk-…")
-        self.api_key.setEchoMode(LineEdit.EchoMode.Password)
-        layout.addWidget(self.api_key)
-        self.base_url = LineEdit()
-        self.base_url.setPlaceholderText("https://api.deepseek.com/v1")
-        layout.addWidget(self.base_url)
-        self.model_name = LineEdit()
-        self.model_name.setPlaceholderText("deepseek-chat")
-        layout.addWidget(self.model_name)
-        self.remember_box = CheckBox("记住 Key（Windows DPAPI 加密）")
-        layout.addWidget(self.remember_box)
-        api_row = QHBoxLayout()
-        self.btn_api = PrimaryPushButton(FIF.ACCEPT, "应用接口设置")
-        self.btn_api.setMinimumHeight(32)
-        self.btn_api.clicked.connect(self._apply_api)
-        api_row.addWidget(self.btn_api)
-        self.api_status = CaptionLabel("")
-        api_row.addWidget(self.api_status, 1)
-        layout.addLayout(api_row)
-        layout.addWidget(
-            CaptionLabel(
-                "设置保存在 data/settings.json；"
-                "Key 用 DPAPI 加密后写入 data/secrets.bin。"
-            )
-        )
-
-        import os
-
-        card = CardWidget()
-        card_layout = QVBoxLayout(card)
-        card_layout.addWidget(BodyLabel("环境"))
-        card_layout.addWidget(
-            CaptionLabel(
-                "翻译 API：" + ("已配置" if os.environ.get("MANGATL_API_KEY") else "未配置")
-            )
-        )
-        card_layout.addWidget(CaptionLabel("OCR：manga-ocr + MIT48px 融合"))
-        card_layout.addWidget(
-            CaptionLabel("擦除：由底部工具栏选择（masked 文字像素 / lama 纹理重建）")
-        )
-        layout.addWidget(card)
-        layout.addStretch(1)
-
-
 class SearchDialog(QDialog):
     """Global block search as a dialog (the rail keeps only editing/run/settings)."""
 
@@ -508,91 +467,11 @@ class SearchDialog(QDialog):
         self.sheet.refresh()
 
 
-def _settings_apply_preset(self) -> None:
-    from mangatl.adapters.translators.openai_compat import PROFILES
-
-    profiles = ["openai", "ollama", "lmstudio", "llamacpp", None]
-    profile = profiles[self.preset_box.currentIndex()]
-    if profile is None:
-        return
-    base, model, needs_key = PROFILES[profile]
-    self.base_url.setText(base)
-    self.model_name.setText(model)
-    self.api_key.setEnabled(needs_key)
-    if not needs_key:
-        self.api_key.setPlaceholderText("本地模型通常不需要 Key")
-
-
-def _settings_apply_api(self) -> None:
-    import os
-
-    from mangatl.io import settings as prefs
-
-    profiles = ["openai", "ollama", "lmstudio", "llamacpp", "openai"]
-    profile = profiles[self.preset_box.currentIndex()]
-    key = self.api_key.text().strip()
-    base = self.base_url.text().strip()
-    model = self.model_name.text().strip()
-    if profile == "openai" and not key:
-        self.api_status.setText("云端翻译需要 Key")
-        return
-    if key:
-        os.environ["MANGATL_API_KEY"] = key
-    if base:
-        os.environ["MANGATL_BASE_URL"] = base
-    if model:
-        os.environ["MANGATL_MODEL"] = model
-    prefs.save_settings({"profile": profile, "base_url": base, "model": model})
-    if key and self.remember_box.isChecked():
-        stored = prefs.save_api_key(key)
-        self.api_status.setText(
-            "已加密保存" if stored else "DPAPI 不可用，仅本次运行"
-        )
-    else:
-        prefs.clear_api_key()
-        self.api_status.setText("已写入当前进程（未保存 Key）")
-    self.apiConfigured.emit()
-
-
-def _settings_load_saved(self) -> None:
-    import os
-
-    from mangatl.io import secrets as secure
-    from mangatl.io import settings as prefs
-
-    saved = prefs.load_settings()
-    profile = saved.get("profile", "openai")
-    names = ["openai", "ollama", "lmstudio", "llamacpp"]
-    self.preset_box.setCurrentIndex(
-        names.index(profile) if profile in names else 4
-    )
-    self.base_url.setText(
-        saved.get("base_url") or os.environ.get("MANGATL_BASE_URL", "")
-    )
-    self.model_name.setText(
-        saved.get("model") or os.environ.get("MANGATL_MODEL", "")
-    )
-    if os.environ.get("MANGATL_API_KEY"):
-        self.api_key.setText(os.environ["MANGATL_API_KEY"])
-    stored = secure.load_key(prefs.SECRETS_PATH) is not None
-    self.remember_box.setChecked(stored)
-    self.api_status.setText("已加密保存" if stored else "未保存 Key")
-
-
-# Attach the handler defined above (kept out of the class body to keep it readable).
-SettingsSheet._apply_api = _settings_apply_api
-SettingsSheet._apply_preset = _settings_apply_preset
-SettingsSheet._load_saved = _settings_load_saved
-
-
 def build_sheets(project: Project, engines_provider=None) -> dict[str, QWidget]:
     """Create the standard module panels (run doubles as the batch panel)."""
     from mangatl.gui.batch import BatchSheet
 
-    settings = SettingsSheet()
-    settings._load_saved()
     return {
         "editor": EditorSheet(),
         "run": BatchSheet(project, engines_provider),
-        "settings": settings,
     }

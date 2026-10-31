@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
+import time
+import uuid
 from pathlib import Path
 
 from PySide6.QtCore import QPointF, QSize, Qt, QTimer
@@ -16,6 +19,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QScrollArea,
     QSizePolicy,
     QSlider,
     QStackedWidget,
@@ -28,7 +32,6 @@ from qfluentwidgets import (
     Action,
     CheckBox,
     InfoBar,
-    InfoBarPosition,
     RoundMenu,
     TransparentToolButton,
 )
@@ -39,14 +42,18 @@ from qfluentwidgets import (
 from mangatl.domain.project import Project
 from mangatl.gui.canvas import PageCanvas
 from mangatl.gui.editor import PageEditor
+from mangatl.gui.erase_toolbar import EraseToolbar
 from mangatl.gui.pages import ThumbnailList
+from mangatl.gui.region_progress import RegionProgressDialog
+from mangatl.gui.region_worker import RegionWorkerClient
+from mangatl.gui.settings_dialog import SettingsDialog
 from mangatl.gui.sheets import SHEET_ICONS, SHEET_TITLES, build_sheets
 
 ENGINE_OPTIONS = {
     "detector": ("ctd",),
     "ocr": ("mit_manga", "manga_ocr", "mit48px_ctc", "rapidocr"),
     "inpainter": ("masked", "lama"),
-    "translator": ("openai", "ollama", "lmstudio", "llamacpp"),
+    "translator": ("openai", "ollama", "lmstudio", "llamacpp", "echo"),
 }
 
 
@@ -74,6 +81,18 @@ class MainWindow(QMainWindow):
         self._preview_timer.setSingleShot(True)
         self._preview_timer.setInterval(350)
         self._preview_timer.timeout.connect(self._auto_rerender)
+        self._region_client = RegionWorkerClient(self)
+        self._region_client.result.connect(self._on_region_result)
+        self._region_client.failed.connect(self._on_region_failed)
+        self._region_busy = False
+        self._region_started = 0.0
+        self._region_page = ""
+        self._region_request_id = ""
+        self._region_kind = ""
+        self._region_dialog: RegionProgressDialog | None = None
+        self._region_timer = QTimer(self)
+        self._region_timer.setInterval(200)
+        self._region_timer.timeout.connect(self._poll_region_fill)
         self.region: list[tuple[float, float]] | None = None
         self._undo: dict[str, list[dict]] = {}
         self._edited = False
@@ -84,6 +103,7 @@ class MainWindow(QMainWindow):
         self._build_module_panel()
         self._build_engine_bar()
         self._install_shortcuts()
+        self._load_preferences()
         self.statusBar().showMessage("就绪")
 
         self.refresh_pages()
@@ -108,6 +128,7 @@ class MainWindow(QMainWindow):
             ("Esc", self._cancel_selection),
             ("R", self.canvas.rotate_view),
             ("F11", self.toggle_fullscreen),
+            ("Ctrl+,", self.show_settings),
         ):
             action = QAction(self)
             action.setShortcut(QKeySequence(keys))
@@ -140,6 +161,33 @@ class MainWindow(QMainWindow):
             painter.drawRect(6, 11, 15, 15)
         else:
             painter.drawRect(7, 7, 18, 18)
+        painter.end()
+        return QIcon(pixmap)
+
+    def _minimize_icon(self) -> QIcon:
+        """Windows-style minimize glyph: one horizontal bar."""
+        pixmap = QPixmap(32, 32)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pen = QPen(QColor("#e6e6e6"), 2.4)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        painter.drawLine(10, 17, 22, 17)
+        painter.end()
+        return QIcon(pixmap)
+
+    def _close_icon(self) -> QIcon:
+        """Windows-style X for the window close button."""
+        pixmap = QPixmap(32, 32)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pen = QPen(QColor("#e6e6e6"), 2.4)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        painter.drawLine(10, 10, 22, 22)
+        painter.drawLine(22, 10, 10, 22)
         painter.end()
         return QIcon(pixmap)
 
@@ -221,6 +269,17 @@ class MainWindow(QMainWindow):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
         )
         bar.addWidget(spacer)
+        self.btn_minimize = QToolButton()
+        self.btn_minimize.setObjectName("ModeButton")
+        self.btn_minimize.setIcon(self._minimize_icon())
+        self.btn_minimize.setIconSize(QSize(16, 16))
+        self.btn_minimize.setFixedSize(30, 30)
+        self.btn_minimize.setToolTip("最小化")
+        self.btn_minimize.clicked.connect(self.showMinimized)
+        bar.addWidget(self.btn_minimize)
+        gap_left = QWidget(bar)
+        gap_left.setFixedWidth(12)
+        bar.addWidget(gap_left)
         self.btn_fullscreen = QToolButton()
         self.btn_fullscreen.setObjectName("ModeButton")
         self.btn_fullscreen.setIcon(self._fullscreen_icon(False))
@@ -229,14 +288,25 @@ class MainWindow(QMainWindow):
         self.btn_fullscreen.setToolTip("全屏 (F11)")
         self.btn_fullscreen.clicked.connect(self.toggle_fullscreen)
         bar.addWidget(self.btn_fullscreen)
+        gap = QWidget(bar)
+        gap.setFixedWidth(12)
+        bar.addWidget(gap)
+        self.btn_close = QToolButton()
+        self.btn_close.setObjectName("CloseButton")
+        self.btn_close.setIcon(self._close_icon())
+        self.btn_close.setIconSize(QSize(16, 16))
+        self.btn_close.setFixedSize(30, 30)
+        self.btn_close.setToolTip("关闭窗口 (Alt+F4)")
+        self.btn_close.clicked.connect(self.close)
+        bar.addWidget(self.btn_close)
         edge = QWidget(bar)
-        edge.setFixedWidth(14)
+        edge.setFixedWidth(0)
         bar.addWidget(edge)
 
     # -- canvas / sidebar -------------------------------------------------
     def _build_central(self) -> None:
         self.canvas = PageCanvas(self)
-        self.canvas.setMinimumWidth(420)
+        self.canvas.setMinimumWidth(300)
         self.canvas.blockClicked.connect(self.select_block)
         self.canvas.blockGeometryChanged.connect(self.on_geometry_changed)
         self.canvas.blockRotated.connect(self.on_block_rotated)
@@ -246,6 +316,13 @@ class MainWindow(QMainWindow):
             lambda x, y: self.statusBar().showMessage(f"x={x} y={y}")
         )
         self.setCentralWidget(self.canvas)
+        self.erase_bar = EraseToolbar(self.canvas.viewport())
+        self.erase_bar.sizeChanged.connect(self.canvas.set_brush_radius)
+        self.erase_bar.brushToggled.connect(self._on_brush_toggled)
+        self.canvas.brushRequested.connect(self._activate_brush)
+        self.erase_bar.cancelRequested.connect(self.cancel_region_fill)
+        self.canvas.brushFinished.connect(self.on_brush_finished)
+        self.erase_bar.hide_bar()
         self._build_selection_bar()
         self.canvas.selectionChanged.connect(self._on_selection_changed)
         self.canvas.selectionIdsChanged.connect(self.on_selection_ids)
@@ -360,6 +437,11 @@ class MainWindow(QMainWindow):
             button.clicked.connect(lambda _=False, k=key: self.show_module(k))
             self.rail_buttons[key] = button
             rail_layout.addWidget(button)
+        rail_layout.addSpacing(8)
+        self.rail_settings = TransparentToolButton(FIF.SETTING)
+        self.rail_settings.setToolTip("设置（Ctrl+,，弹窗）")
+        self.rail_settings.clicked.connect(self.show_settings)
+        rail_layout.addWidget(self.rail_settings)
         rail_layout.addStretch(1)
         rail_layout.addSpacing(8)
         self.rail_view: list[TransparentToolButton] = []
@@ -380,13 +462,24 @@ class MainWindow(QMainWindow):
 
         self.stack = QStackedWidget()
         self._sheet_keys = list(self.sheets)
+        self._sheet_views: dict[str, QScrollArea] = {}
         for key in self._sheet_keys:
-            self.stack.addWidget(self.sheets[key])
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            scroll.setWidget(self.sheets[key])
+            scroll.setStyleSheet(
+                "QScrollArea { background: transparent; border: none; }"
+                "QScrollArea > QWidget > QWidget { background: transparent; }"
+            )
+            self._sheet_views[key] = scroll
+            self.stack.addWidget(scroll)
         layout.addWidget(self.stack, 1)
 
         dock.setWidget(container)
-        dock.setMinimumWidth(350)
-        dock.setMaximumWidth(430)
+        dock.setMinimumWidth(400)
+        dock.setMaximumWidth(460)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
         self.module_dock = dock
 
@@ -399,11 +492,10 @@ class MainWindow(QMainWindow):
         self.sheets["run"].runCurrentRequested.connect(
             lambda: self.run_page(self.page_index)
         )
-        self.sheets["settings"].apiConfigured.connect(self.on_api_configured)
 
         self.rail_current = "editor"
         self.rail_buttons["editor"].setChecked(True)
-        self.stack.setCurrentWidget(self.sheets["editor"])
+        self.stack.setCurrentWidget(self._sheet_views["editor"])
 
     def show_module(self, key: str) -> None:
         """Switch the right panel to a module."""
@@ -412,7 +504,7 @@ class MainWindow(QMainWindow):
         self.rail_current = key
         for name, button in self.rail_buttons.items():
             button.setChecked(name == key)
-        self.stack.setCurrentWidget(self.sheets[key])
+        self.stack.setCurrentWidget(self._sheet_views[key])
         self.module_dock.show()
 
     def show_search(self) -> None:
@@ -447,7 +539,7 @@ class MainWindow(QMainWindow):
                     lambda _value: self._apply_inpainter_choice()
                 )
             if key == "translator":
-                default = "openai" if os.environ.get("MANGATL_API_KEY") else "ollama"
+                default = "openai" if os.environ.get("MANGATL_API_KEY") else "echo"
                 box.setCurrentText(default)
             self.engine_boxes[key] = box
             bar.addWidget(box)
@@ -470,6 +562,16 @@ class MainWindow(QMainWindow):
         super().resizeEvent(event)
         if getattr(self, "_pending_fit", False):
             self._fit_once()
+        dock = getattr(self, "module_dock", None)
+        if dock is None or getattr(self, "_resizing_dock", False):
+            return
+        target = max(400, min(430, int(self.width() * 0.28)))
+        if abs(dock.width() - target) >= 20:
+            self._resizing_dock = True
+            try:
+                self.resizeDocks([dock], [target], Qt.Orientation.Horizontal)
+            finally:
+                self._resizing_dock = False
 
     def _fit_once(self) -> None:
         """Fit the page once the window has its final size."""
@@ -501,6 +603,8 @@ class MainWindow(QMainWindow):
         self.sheets["editor"].show_page(page)
 
     def load_page(self, index: int, keep_selection: bool = False) -> None:
+        if self._region_busy:
+            self.cancel_region_fill()
         if not len(self.project):
             return
         index = max(0, min(index, len(self.project) - 1))
@@ -542,11 +646,18 @@ class MainWindow(QMainWindow):
             page = list(self.project)[index]
             result = self.project.directory / "result" / page.name
             if result.is_file():
-                os.startfile(result)  # noqa: S606 - open a local file
+                self._open_external(result)
             else:
                 self.statusBar().showMessage("该页还没有排版结果")
         elif action == "rename":
             self.rename_page(index)
+
+    def _open_external(self, path: Path) -> None:
+        """Open a file in its default app; report failures instead of crashing."""
+        try:
+            os.startfile(str(path))  # type: ignore[attr-defined]
+        except (AttributeError, OSError) as exc:
+            InfoBar.error("无法打开文件", f"{path}\n{exc}", parent=self)
 
     def rename_page(self, index: int) -> None:
         page = list(self.project)[index]
@@ -655,7 +766,10 @@ class MainWindow(QMainWindow):
         return True
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt name
+        if self._region_busy:
+            self.cancel_region_fill()
         if self._confirm_exit():
+            self._region_client.shutdown()
             event.accept()
         else:
             event.ignore()
@@ -932,8 +1046,12 @@ class MainWindow(QMainWindow):
         self.editor.project.save()
         self._touch_page()
         self.canvas.set_blocks(self.editor.page.blocks, [block_id])
-        self.rerender()
-        self.statusBar().showMessage(f"#{block_id} 已应用并重排")
+        # Re-render in the background; do not jump the user into the result view
+        # while they are still typing in the editor panel.
+        self.editor.rerender()
+        if self.view_mode == "result":
+            self.show_view("result", quiet=True)
+        self.statusBar().showMessage(f"#{block_id} 已自动应用")
 
     def on_block_action(self, action: str) -> None:
         if action == "reocr":
@@ -945,83 +1063,26 @@ class MainWindow(QMainWindow):
         elif action == "delete":
             self.delete_block()
 
-    def _ocr_engine(self):
-        """Fusion when the MIT48 weights exist, otherwise manga-ocr alone."""
-        from mangatl.adapters.ocr.manga_ocr import MangaOcrAdapter
-
-        manga = MangaOcrAdapter()
-        try:
-            from mangatl.adapters.ocr.hybrid import FusionOcr
-            from mangatl.adapters.ocr.mit48px import DEFAULT_MODEL, Mit48pxOcr
-
-            model = Path(os.environ.get("MANGATL_MIT48_MODEL", DEFAULT_MODEL))
-            if model.is_file():
-                return FusionOcr(Mit48pxOcr(), manga)
-        except Exception:  # noqa: BLE001 - optional engine
-            pass
-        return manga
-
     def reocr_block(self) -> None:
         block = self._selected()
         if block is None or self.editor is None:
             return
-        self._snapshot()
-        # OCR adapters write into the block they receive, so keep the old text.
-        original_text = block.text
-        original_source = block.ocr_source
-        probe = self._ocr_engine().recognize(self.editor.image_path, [block])[0]
-        text = probe.text.strip()
-        from mangatl.domain.plausibility import plausibility
-        from mangatl.domain.quality import looks_like_hallucination
-
-        suspicious = (
-            not text
-            or plausibility(text) < 0.25
-            or looks_like_hallucination(text, block.text)
-        )
-        if suspicious:
-            block.text = original_text
-            block.ocr_source = original_source
-            block.needs_review = True
-            self.editor.project.save()
-            self._touch_page()
-            InfoBar.warning(
-                "识别结果可疑",
-                f"「{text[:24] or '空'}」没有写入，已保留原文；可用选区重新检测或手动输入",
-                parent=self,
-            )
-            self.statusBar().showMessage(f"#{block.id} 重新识别被拒绝：{text[:20]}")
-            return
-        block.text = text
-        block.ocr_source = "reocr"
-        block.needs_review = False
-        self.editor.project.save()
-        self.sheets["editor"].show_block(block)
-        self.canvas.set_blocks(self.editor.page.blocks, [block.id])
-        self._schedule_render()
-        self.statusBar().showMessage(f"重新识别 #{block.id}: {text[:20]}")
+        self._start_task("ocr", {"block": block.id}, "重新识别所选")
 
     def translate_block(self) -> None:
-        block = self._selected()
-        if block is None or self.editor is None:
+        if self.editor is None:
             return
-        from mangatl.adapters.translators.openai_compat import (
-            LlmConfig,
-            OpenAiTranslator,
-            TranslationError,
+        ids = self.selected_ids or ([self.selected_id] if self.selected_id else [])
+        blocks = [block for block in self.editor.page.blocks if block.id in ids]
+        if not blocks:
+            InfoBar.info("需要选中文本块", "先在画布上选择要翻译的块", parent=self)
+            return
+        engine = self.engine_boxes["translator"].currentText()
+        self._start_task(
+            "translate",
+            {"blocks": [block.id for block in blocks], "translator": engine},
+            "翻译所选",
         )
-
-        try:
-            translator = OpenAiTranslator(LlmConfig.from_env())
-        except TranslationError as exc:
-            InfoBar.warning(
-                "翻译不可用", str(exc), parent=self, position=InfoBarPosition.TOP
-            )
-            return
-        translator.translate([block], {"target_lang": "简体中文"})
-        self.sheets["editor"].show_block(block)
-        self.editor.project.save()
-        self._touch_page()
 
     def delete_block(self) -> None:
         block = self._selected()
@@ -1074,25 +1135,194 @@ class MainWindow(QMainWindow):
         return True
 
     def redetect_region(self) -> None:
-        if self.editor is None or not self._require_region():
+        if self.editor is None:
             return
-        self._snapshot()
-        added = self.editor.redetect(self.region or [])
-        self.canvas.set_blocks(self.editor.page.blocks)
-        self._touch_page()
-        self._finish_selection_action()
-        self.statusBar().showMessage(f"区域检测：新增 {len(added)} 块")
+        points = self._region_points()
+        if len(points) < 3:
+            InfoBar.info("需要区域", "先用套索或矩形工具框选一块区域", parent=self)
+            return
+        self._start_task(
+            "detect",
+            {"polygon": [[float(x), float(y)] for x, y in points]},
+            "重新检测选区",
+        )
 
     def erase_region(self) -> None:
         if self.editor is None or not self._require_region():
             return
-        self._snapshot(images=("inpainted", "result"))
-        path = self.editor.erase_region(self.region or [])
-        self.show_view("erased", quiet=True)
-        self._touch_page()
-        self._schedule_render()
+        points = self._region_points()
+        if len(points) < 3:
+            InfoBar.info("需要选区", "先框选一块区域，或选中若干文本块", parent=self)
+            return
+        engine = self.engine_boxes["inpainter"].currentText()
+        self._start_task(
+            "fill",
+            {
+                "polygon": [[float(x), float(y)] for x, y in points],
+                "inpainter": engine,
+            },
+            "局部重绘",
+            images=("inpainted", "result"),
+        )
+
+    def _start_task(
+        self,
+        kind: str,
+        payload: dict,
+        title: str,
+        images: tuple[str, ...] = (),
+        inline: bool = False,
+    ) -> None:
+        """Submit a background task (modal dialog, or inline in the erase toolbar)."""
+        if self.editor is None:
+            return
+        if self._region_busy:
+            InfoBar.info("后台任务进行中", "上一个任务还没结束，请稍候", parent=self)
+            return
+        self._snapshot(images=images)
+        request_id = uuid.uuid4().hex
+        request = {
+            "id": request_id,
+            "op": kind,
+            "directory": str(self.project.directory),
+            "page": self.editor.page.name,
+            **payload,
+        }
+        self._region_request_id = request_id
+        self._region_kind = kind
+        self._region_page = self.editor.page.name
+        self._region_started = time.monotonic()
+        self._region_busy = True
+        if inline:
+            self.erase_bar.start_progress()
+        else:
+            self._region_dialog = RegionProgressDialog(self, title)
+            self._region_dialog.cancelled.connect(self.cancel_region_fill)
+            self._region_dialog.set_detail(f"{title} · {self.editor.page.name}")
+            self._region_dialog.show()
+        self._region_timer.start()
+        if not self._region_client.submit(request):
+            self._region_timer.stop()
+            self._region_busy = False
+            self.erase_bar.stop_progress()
+            self._close_region_dialog()
+            return
+        self.statusBar().showMessage(f"{title}已提交到后台进程")
+
+    def _close_region_dialog(self) -> None:
+        if self._region_dialog is not None:
+            self._region_dialog.finish()
+            self._region_dialog = None
+
+    def _poll_region_fill(self) -> None:
+        if not self._region_busy:
+            self._region_timer.stop()
+            return
+        if self._region_dialog is not None:
+            self._region_dialog.set_elapsed(time.monotonic() - self._region_started)
+
+    def _on_region_result(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            return
+        result_id = payload.get("id")
+        if isinstance(result_id, str):
+            self._region_client.clear_cancel_token(result_id)
+        if not self._region_busy or result_id != self._region_request_id:
+            return
+        self._region_timer.stop()
+        self._region_busy = False
+        self.erase_bar.stop_progress()
+        self._close_region_dialog()
+        kind = str(payload.get("op") or self._region_kind)
+        if payload.get("rejected"):
+            text = str(payload.get("text") or "")
+            InfoBar.warning(
+                "识别结果可疑",
+                f"「{text[:24] or '空'}」没有写入，已保留原文",
+                parent=self,
+            )
+            self.statusBar().showMessage("识别结果可疑，已保留原文")
+            return
+        if not payload.get("ok"):
+            detail = str(payload.get("error") or "未知错误")
+            InfoBar.error("后台任务失败", detail, parent=self)
+            self.statusBar().showMessage(f"后台任务失败：{detail}")
+            return
+        self._reload_after_task(kind, payload)
+
+    def _reload_after_task(self, kind: str, payload: dict) -> None:
+        if self.editor is None:
+            return
+        selected = self.selected_id
+        self.project.reload()
+        self.refresh_pages()
+        self.load_page(self.page_index)
+        if kind != "fill" and selected is not None and self.editor is not None:
+            block = next(
+                (item for item in self.editor.page.blocks if item.id == selected),
+                None,
+            )
+            if block is not None:
+                self.select_block(selected)
+            else:
+                self.sheets["editor"].show_block(None)
+        if kind in {"fill", "brush"}:
+            self.show_view("erased", quiet=True)
+            self._schedule_render()
+            seconds = payload.get("seconds")
+            suffix = f"（{seconds:.1f}s）" if isinstance(seconds, (int, float)) else ""
+            label = "橡皮" if kind == "brush" else "局部重绘"
+            message = f"{label}完成{suffix}"
+        elif kind == "detect":
+            message = f"区域检测完成：新增 {payload.get('added', 0)} 块"
+            self._schedule_render()
+        elif kind == "ocr":
+            message = "重新识别完成"
+            self._schedule_render()
+        else:
+            message = f"翻译完成：{payload.get('count', 0)} 块"
+            self._schedule_render()
         self._finish_selection_action()
-        self.statusBar().showMessage(f"区域擦除 -> {path}")
+        self.statusBar().showMessage(message)
+
+    def _on_region_failed(self, message: str) -> None:
+        if not self._region_busy:
+            return
+        self._region_timer.stop()
+        self._region_busy = False
+        self.erase_bar.stop_progress()
+        self._close_region_dialog()
+        InfoBar.error("后台任务失败", message, parent=self)
+        self.statusBar().showMessage(f"后台任务失败：{message}")
+
+    def cancel_region_fill(self) -> None:
+        """Hard kill, or cooperative cancel that keeps the model warm."""
+        if not self._region_busy:
+            return
+        request_id = self._region_request_id
+        kind = self._region_kind
+        soft = self._region_client.soft_cancel
+        self._region_timer.stop()
+        self._region_busy = False
+        self.erase_bar.stop_progress()
+        self._close_region_dialog()
+        if soft and request_id:
+            token = self._region_client.cancel_token(request_id)
+            token.parent.mkdir(parents=True, exist_ok=True)
+            with contextlib.suppress(OSError):
+                token.write_text(request_id, encoding="utf-8")
+            self.statusBar().showMessage(
+                "已取消：等待当前任务结束，结果会被丢弃（模型保持热启动）"
+            )
+            return
+        self._region_client.cancel()
+        self._region_client.clear_cancel_token(request_id)
+        if kind in {"fill", "brush"} and self._region_page:
+            page_path = self.project.directory / "inpainted" / self._region_page
+            stale = page_path.with_name(page_path.stem + ".tmp" + page_path.suffix)
+            with contextlib.suppress(OSError):
+                stale.unlink(missing_ok=True)
+        self.statusBar().showMessage("后台任务已取消（进程已停止）")
 
     def add_region_block(self) -> None:
         if self.editor is None or not self._require_region():
@@ -1108,6 +1338,60 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("已添加文本块，输入内容后点“应用文本”")
 
     # -- run / theme ------------------------------------------------------
+    def show_settings(self) -> None:
+        """Open the settings dialog and apply the saved values immediately."""
+        dialog = SettingsDialog(self)
+        dialog.applied.connect(self._apply_settings)
+        dialog.exec()
+
+    def _apply_settings(self, values: dict) -> None:
+        if "auto_preview_default" in values:
+            self.auto_preview = bool(values["auto_preview_default"])
+            self.btn_auto.setChecked(self.auto_preview)
+        profile = values.get("profile")
+        if isinstance(profile, str) and profile:
+            combo = self.engine_boxes["translator"]
+            index = combo.findText(profile)
+            if index >= 0:
+                combo.setCurrentIndex(index)
+        self._apply_worker_settings(values)
+        if values.get("switched_to_echo"):
+            InfoBar.info(
+                "已切换为回显原文",
+                "没有可用的翻译接口，结果页会显示原文",
+                parent=self,
+            )
+        if values.get("api_ready") is False:
+            InfoBar.warning(
+                "翻译尚未配置",
+                "云端翻译需要 Key；也可以选本地 Ollama / LM Studio",
+                parent=self,
+            )
+        self.statusBar().showMessage("设置已保存")
+
+    def _apply_worker_settings(self, values: dict) -> None:
+        minutes = int(values.get("worker_idle_minutes", 10))
+        self._region_client.set_idle_timeout(minutes * 60)
+        self._region_client.set_soft_cancel(
+            bool(
+                values.get("soft_cancel_tasks", values.get("soft_cancel_region", False))
+            )
+        )
+
+    def _load_preferences(self) -> None:
+        from mangatl.io import settings as prefs
+
+        saved = prefs.load_settings()
+        self.auto_preview = bool(saved.get("auto_preview_default", True))
+        self.btn_auto.setChecked(self.auto_preview)
+        self._apply_worker_settings(saved)
+        profile = saved.get("profile")
+        if isinstance(profile, str) and profile:
+            combo = self.engine_boxes["translator"]
+            index = combo.findText(profile)
+            if index >= 0:
+                combo.setCurrentIndex(index)
+
     def on_api_configured(self) -> None:
         """Switch the translator to openai once a key is entered."""
         self.engine_boxes["translator"].setCurrentText("openai")
@@ -1165,6 +1449,10 @@ class MainWindow(QMainWindow):
                 InfoBar.info(missing[1], missing[2], parent=self)
             mode = "source"
         self.view_mode = mode
+        if mode == "result":
+            # Result view is block-only; drop any stale region so region actions
+            # cannot fire from a hidden selection.
+            self.region = None
         if mode == "result" and not quiet and self._result_is_stale():
             if self.auto_preview:
                 self._auto_rerender()
@@ -1179,20 +1467,35 @@ class MainWindow(QMainWindow):
                 {"source": "blocks", "erased": "diff", "result": "text"}[mode]
             )
             self.canvas.show_image(
-                path, keep_selection=mode == "erased", preserve_view=True
+                path,
+                keep_selection=mode in {"source", "erased"},
+                preserve_view=True,
             )
             if mode == "erased" and self.editor.erased_path.is_file():
                 self.canvas.show_erased_diff(
                     self.editor.image_path, self.editor.erased_path
                 )
             if mode == "erased":
-                # Erased view is region-only: no block boxes, no block highlight.
-                self._clear_region()
+                # Erased view is region-only: hide block highlights but keep the
+                # lasso/rectangle so a region can be inspected before erasing.
                 self.canvas.set_blocks(self.editor.page.blocks)
             else:
                 self.canvas.set_blocks(self.editor.page.blocks, self.selected_ids)
         self.btn_view_source.setChecked(mode == "source")
         self.btn_view_erased.setChecked(mode == "erased")
+        try:
+            if mode == "erased" and self.editor.erased_path.is_file():
+                self.erase_bar.show_bar()
+                self.erase_bar.set_brush_checked(True)
+                self.canvas.set_brush_radius(self.erase_bar.brush_size())
+                self.canvas.set_mode("brush")
+            else:
+                self.erase_bar.hide_bar()
+                self.erase_bar.set_brush_checked(False)
+                if self.canvas.mode == "brush":
+                    self.canvas.set_mode("select")
+        except Exception as exc:  # noqa: BLE001 - never block the view switch
+            self.statusBar().showMessage(f"画笔工具条不可用：{exc}")
         self.btn_view_result.setChecked(mode == "result")
         labels = {
             "source": "原图 · 编辑检测框",
@@ -1200,6 +1503,94 @@ class MainWindow(QMainWindow):
             "result": "排版结果 · 拖动虚线框调整文字",
         }
         self.statusBar().showMessage(labels.get(mode, mode))
+
+    def _activate_brush(self) -> None:
+        """Switch the erased view into brush mode (toolbar icon or B key)."""
+        if self.editor is None or self.view_mode != "erased":
+            self.show_view("erased", quiet=True)
+        if self.editor is None or self.view_mode != "erased":
+            return
+        self.erase_bar.set_brush_checked(True)
+        self._on_brush_toggled(True)
+
+    def _on_brush_toggled(self, active: bool) -> None:
+        if self.editor is None:
+            return
+        if active:
+            if self.view_mode != "erased":
+                self.show_view("erased", quiet=True)
+                if self.view_mode != "erased":
+                    self.erase_bar.set_brush_checked(False)
+                    return
+            self._clear_region()
+            self.selection_bar.hide()
+            self.canvas.set_mode("brush")
+            self.canvas.set_brush_radius(self.erase_bar.brush_size())
+            self.mode_group.setExclusive(False)
+            for button in (self.btn_select, self.btn_lasso, self.btn_rect):
+                button.setChecked(False)
+            self.mode_group.setExclusive(True)
+            self.statusBar().showMessage("画笔：左键擦除，右键恢复")
+        else:
+            self.canvas.set_mode("select")
+            self.btn_select.setChecked(True)
+            self.statusBar().showMessage("已退出画笔")
+
+    def on_brush_finished(self, points: list, radius: int, erase: bool) -> None:
+        if self.editor is None or self.view_mode != "erased" or len(points) == 0:
+            return
+        if self._region_busy:
+            InfoBar.info("后台任务进行中", "上一笔还没处理完，请稍候", parent=self)
+            return
+        if not erase:
+            self._restore_brush_stroke(points, int(radius))
+            return
+        self._start_task(
+            "brush",
+            {
+                "points": [[float(x), float(y)] for x, y in points],
+                "radius": int(radius),
+                "engine": self.erase_bar.engine(),
+            },
+            "橡皮",
+            images=("inpainted", "result"),
+            inline=True,
+        )
+
+    def _restore_brush_stroke(self, points: list, radius: int) -> None:
+        """Paste session-baseline pixels back along a right-drag stroke."""
+        if self.editor is None:
+            return
+        from PIL import Image, ImageDraw
+
+        path = self.editor.erased_path
+        if not path.is_file():
+            InfoBar.info("还没有擦除图", "先做一次擦除，再使用右键恢复", parent=self)
+            return
+        self._snapshot(images=("inpainted", "result"))
+        source = Image.open(self.editor.image_path).convert("RGB")
+        with Image.open(path) as handle:
+            target = handle.convert("RGB")
+        mask = Image.new("L", target.size, 0)
+        draw = ImageDraw.Draw(mask)
+        if len(points) == 1:
+            x, y = points[0]
+            draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=255)
+        else:
+            draw.line(points, fill=255, width=radius * 2, joint="curve")
+            for x, y in (points[0], points[-1]):
+                draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=255)
+        if mask.getbbox() is None:
+            self.statusBar().showMessage("笔迹在画面外，已忽略")
+            return
+        target.paste(source, mask=mask)
+        temporary = path.with_name(path.stem + ".tmp" + path.suffix)
+        target.save(temporary)
+        os.replace(temporary, path)
+        self.show_view("erased", quiet=True)
+        self._touch_page()
+        self._schedule_render()
+        self.statusBar().showMessage("已恢复一笔（右键笔迹）")
 
     def _result_is_stale(self) -> bool:
         """True when the project changed after the result image was written."""
@@ -1269,6 +1660,7 @@ class MainWindow(QMainWindow):
 
     def _set_mode(self, mode: str) -> None:
         self.canvas.set_mode(mode)
+        self.erase_bar.set_brush_checked(False)
         self.btn_select.setChecked(mode == "select")
         self.btn_lasso.setChecked(mode == "lasso")
         self.btn_rect.setChecked(mode == "rect")

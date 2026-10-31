@@ -12,6 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from mangatl import paths
+
 STAGE_ORDER: tuple[str, ...] = ("detect", "ocr", "translate", "erase", "render")
 
 
@@ -40,7 +42,7 @@ class RunConfig:
     bubble_reocr: bool = True
     verify_budget: int = 12
     page_scopes: tuple[str, ...] = ()
-    bubble_model: str = "data/models/bubble_detector.onnx"
+    bubble_model: str = paths.models_file("bubble_detector.onnx")
     bubble_confidence: float = 0.3
     keep_blocks: tuple[str, ...] = ()
     force_bubble: tuple[str, ...] = ()

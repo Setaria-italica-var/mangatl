@@ -1,3 +1,4 @@
+from mangatl import paths
 # Ported from manga-image-translator (GPL-3.0), via BallonsTranslator (GPL-3.0).
 # Original: https://github.com/zyddnys/manga-image-translator
 # https://github.com/dmMaze/BallonsTranslator/blob/dev/ballontranslator/modules/ocr/mit48px_ctc.py
@@ -399,7 +400,7 @@ class AvgMeter() :
 class OCR48pxCTC:
 
     def __init__(self, model_path: str, device='cpu'):
-        with open('data/alphabet-all-v5.txt', 'r', encoding = 'utf-8') as fp :
+        with open(paths.data_file("alphabet-all-v5.txt"), "r", encoding="utf-8") as fp:
             dictionary = [s[:-1] for s in fp.readlines()]
         self.device = device
         self.text_height = 48

@@ -7,6 +7,39 @@
 > 状态：**设计阶段（v0.3）**。架构与契约已冻结，代码尚未开始实现。
 > 设计文档见 [`docs/design.md`](docs/design.md)。
 
+## 快速开始（项目自带运行时）
+
+仓库内含 `runtime\`（Python 3.12 + PySide6 / torch / onnxruntime 等），无需另装 Python：
+
+```bat
+launch.bat
+```
+
+命令行：
+
+```bat
+runtime\python.exe -m mangatl --help
+```
+
+依赖清单：[`requirements.txt`](requirements.txt)。更新依赖只需改这个文件后运行：
+
+```bat
+setup.bat
+```
+
+启动脚本（`launch.bat` / `启动.bat`）只做环境校验和启动 GUI，不包含依赖列表。
+改了 `src\mangatl` 后同步到 runtime：
+
+```bat
+runtime\python.exe tools\sync_runtime.py
+```
+
+便携版构建：
+
+```bat
+runtime\python.exe tools\build_portable_bat.py
+```
+
 ---
 
 ## 它解决什么问题

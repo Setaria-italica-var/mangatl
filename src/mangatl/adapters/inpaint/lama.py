@@ -16,10 +16,11 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from mangatl import paths
 from mangatl.adapters.inpaint.masked import MaskedConfig, MaskedInpainter, erased_mask
 from mangatl.domain.block import TextBlock
 
-DEFAULT_MODEL = "data/models/lama.onnx"
+DEFAULT_MODEL = paths.models_file("lama.onnx")
 
 
 class LamaInpainter:
